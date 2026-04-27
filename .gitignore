@@ -1,0 +1,16 @@
+# Compiled binaries
+bin/
+*.exe
+*.out
+
+# Test / coverage / profile artifacts
+*.test
+*.prof
+coverage.txt
+coverage.out
+
+# macOS / editor noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
