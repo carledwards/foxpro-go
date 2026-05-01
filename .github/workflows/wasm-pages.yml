@@ -30,6 +30,11 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Opt JS-based actions into Node 24 ahead of the forced cutover in
+# June 2026. Suppresses the Node 20 deprecation warning on each run.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
@@ -51,6 +56,12 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          # Auto-enable GitHub Pages on this repo if it isn't already.
+          # Requires pages:write scope (granted in `permissions:` above).
+          # Means the workflow self-bootstraps — no manual click in
+          # repo Settings → Pages needed.
+          enablement: true
 
       - name: Upload web/ as Pages artifact
         uses: actions/upload-pages-artifact@v3
