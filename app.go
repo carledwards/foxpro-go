@@ -109,16 +109,19 @@ func NewApp() (*App, error) {
 // build and Init the screen themselves before handing it over.
 //
 // The caller is responsible for Init / Fini lifecycle on the screen.
+//
+// Builtin commands (CLEAR/HELP/QUIT/VER) are NOT registered here. Hosts
+// opt in by calling RegisterBuiltinCommands(app) themselves — that
+// keeps host-incompatible commands (e.g. QUIT under wasm) out of the
+// command palette unless explicitly chosen.
 func NewAppWithScreen(s tcell.Screen) *App {
-	app := &App{
+	return &App{
 		Screen:   s,
 		Theme:    DefaultTheme(),
 		Settings: DefaultSettings(),
 		Manager:  NewWindowManager(),
 		Commands: NewCommandRegistry(),
 	}
-	registerBuiltinCommands(app, app.Commands)
-	return app
 }
 
 // Close tears down the terminal.

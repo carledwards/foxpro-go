@@ -226,9 +226,21 @@ func (cp *CommandProvider) execute() {
 	}
 }
 
-// registerBuiltinCommands installs the framework-level commands on r.
-// Called once by NewApp; apps can add their own with Register afterwards.
-func registerBuiltinCommands(app *App, r *CommandRegistry) {
+// RegisterBuiltinCommands installs framework-level commands on the
+// app's CommandRegistry: CLEAR/CLS, HELP, QUIT, VER.
+//
+// This is opt-in. Apps that want a familiar command-window vocabulary
+// call it explicitly:
+//
+//	app := foxpro.NewApp() // or NewAppWithScreen
+//	foxpro.RegisterBuiltinCommands(app)
+//
+// Hosts that don't want a particular builtin (e.g. browser hosts where
+// QUIT terminates the wasm runtime and locks the page) can skip the
+// call and register only the subset they want — via app.Commands.Register
+// directly, or by composing their own helper packages.
+func RegisterBuiltinCommands(app *App) {
+	r := app.Commands
 	r.Register("CLEAR", "Clear the command window", func(cp *CommandProvider, args string) {
 		cp.Clear()
 	})

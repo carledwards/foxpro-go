@@ -46,6 +46,14 @@ func main() {
 		{Button: tcell.Button1, Mods: tcell.ModShift},
 	}
 
+	// Opt in to CLEAR / CLS / HELP / VER. Skipping QUIT itself isn't
+	// possible without splitting the call — but its OnSelect calls
+	// app.Quit which is harmless here since we route the menu's Quit
+	// item through location.reload() instead. The command is still in
+	// the registry; users typing QUIT in the command window will brick
+	// the page. Worth a separate fix when we revisit the command set.
+	foxpro.RegisterBuiltinCommands(app)
+
 	setupDemo(app)
 	wasm.Run(app, s) // blocks until app.Quit
 }

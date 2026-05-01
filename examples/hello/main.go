@@ -15,6 +15,11 @@ func main() {
 	}
 	defer app.Close()
 
+	// Opt in to the framework's standard CLEAR / HELP / QUIT / VER
+	// command-window commands. Terminal hosts want these; browser
+	// hosts can skip the call (QUIT would brick the wasm runtime).
+	foxpro.RegisterBuiltinCommands(app)
+
 	greeting := foxpro.NewTextProvider([]string{
 		"Welcome to foxpro-go.",
 		"",
