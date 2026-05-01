@@ -10,6 +10,18 @@ single-line borders, blue/cyan/yellow chrome, drop shadows, mouse
 support. Each window owns a `ContentProvider`; the framework handles
 the chrome, hit-testing, focus, scrollbars, and event routing.
 
+## Live demo
+
+A WebAssembly build of the `examples/wasm-hello` demo runs in the
+browser:
+
+**[carledwards.github.io/foxpro-go](https://carledwards.github.io/foxpro-go/)**
+
+Same widgets, menus, drag/resize, and scrollbars as the terminal
+build — just rendered to a canvas instead of a TTY. See
+[`WASM_PORT.md`](WASM_PORT.md) for how the port works and how to add
+your own browser demo.
+
 ## Usage
 
 This module is consumed by
