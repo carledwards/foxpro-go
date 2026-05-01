@@ -9,6 +9,12 @@ bin/
 coverage.txt
 coverage.out
 
+# wasm-hello build artifacts — rebuilt by `make build` locally and by
+# the GitHub Pages workflow on every push. Source-of-truth lives in
+# main.go, sim.js, index.html.
+examples/wasm-hello/web/sim.wasm
+examples/wasm-hello/web/wasm_exec.js
+
 # macOS / editor noise
 .DS_Store
 .idea/

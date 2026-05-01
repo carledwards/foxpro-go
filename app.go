@@ -65,6 +65,12 @@ const (
 type dragState struct {
 	kind   dragKind
 	window *Window
+	// button is the tcell ButtonMask of the press that started the drag.
+	// Motion is processed while this button is held; release of this
+	// button ends the drag. Zero value treated as Button1 so call sites
+	// that don't bother setting it preserve the original left-button-only
+	// behavior.
+	button tcell.ButtonMask
 	offX   int // for move: click X minus window X
 	offY   int
 	// Thumb-drag fields: track the scrollbar geometry captured at the
@@ -72,6 +78,17 @@ type dragState struct {
 	trackStart int
 	trackEnd   int
 	maxScroll  int
+}
+
+// dragButton returns the press button currently driving a drag. The
+// zero value of dragState.button means "left button" so that drag
+// initiations made before the field existed (or paths that don't set
+// it) keep the original behavior.
+func (d dragState) dragButton() tcell.ButtonMask {
+	if d.button == 0 {
+		return tcell.Button1
+	}
+	return d.button
 }
 
 // NewApp initialises tcell. Caller must defer Close (or Screen.Fini).
@@ -84,6 +101,15 @@ func NewApp() (*App, error) {
 		return nil, err
 	}
 	s.EnableMouse()
+	return NewAppWithScreen(s), nil
+}
+
+// NewAppWithScreen wraps an already-initialised tcell.Screen. Used by
+// non-terminal hosts (e.g. browser via tcell.SimulationScreen) that
+// build and Init the screen themselves before handing it over.
+//
+// The caller is responsible for Init / Fini lifecycle on the screen.
+func NewAppWithScreen(s tcell.Screen) *App {
 	app := &App{
 		Screen:   s,
 		Theme:    DefaultTheme(),
@@ -92,7 +118,7 @@ func NewApp() (*App, error) {
 		Commands: NewCommandRegistry(),
 	}
 	registerBuiltinCommands(app, app.Commands)
-	return app, nil
+	return app
 }
 
 // Close tears down the terminal.
@@ -173,10 +199,14 @@ func (a *App) dispatchKey(ev *tcell.EventKey) {
 }
 
 func (a *App) handleBuiltinKey(ev *tcell.EventKey) bool {
-	switch ev.Key() {
-	case tcell.KeyEscape, tcell.KeyCtrlQ:
+	// Quit chords are configurable via Settings.QuitKeys; checked first
+	// so terminal hosts get the conventional Esc/Ctrl+Q binding while
+	// other hosts (wasm, embedded) can opt out by clearing the slice.
+	if a.Settings.IsQuitKey(ev.Key()) {
 		a.Quit()
 		return true
+	}
+	switch ev.Key() {
 	case tcell.KeyF1:
 		// F1 toggles the status bar. Contextual hints (Space: toggle,
 		// etc.) live on the bar's right side, so apps that want a
@@ -221,10 +251,13 @@ func (a *App) dispatchMouse(ev *tcell.EventMouse) {
 	a.mouseX, a.mouseY = mx, my
 	a.mouseVisible = true
 	btn := ev.Buttons()
-	pressed := btn&tcell.Button1 != 0 && a.prevButtons&tcell.Button1 == 0
-	released := btn&tcell.Button1 == 0 && a.prevButtons&tcell.Button1 != 0
-	wheelMask := tcell.WheelUp | tcell.WheelDown | tcell.WheelLeft | tcell.WheelRight
+	prev := a.prevButtons
 	a.prevButtons = btn
+
+	leftPressed := btn&tcell.Button1 != 0 && prev&tcell.Button1 == 0
+	leftReleased := btn&tcell.Button1 == 0 && prev&tcell.Button1 != 0
+	rightPressed := btn&tcell.Button2 != 0 && prev&tcell.Button2 == 0
+	wheelMask := tcell.WheelUp | tcell.WheelDown | tcell.WheelLeft | tcell.WheelRight
 
 	// Wheel events: ask the provider's WheelHandler first (so split
 	// layouts can route by cursor position), then fall back to the
@@ -256,8 +289,22 @@ func (a *App) dispatchMouse(ev *tcell.EventMouse) {
 		return
 	}
 
-	if released {
-		a.drag = dragState{}
+	// End any in-progress drag whose initiating button has just been
+	// released. Window-chrome drags can be started with either Button1
+	// (normal title-drag, shift+click background drag, scrollbar thumbs)
+	// or Button2 (right-click background drag), so we honour whichever
+	// button kicked the drag off.
+	if a.drag.kind != dragNone {
+		db := a.drag.dragButton()
+		if btn&db == 0 && prev&db != 0 {
+			a.drag = dragState{}
+		}
+	}
+
+	// Content-provider capture release. MouseDragHandlers are wired only
+	// on the primary button — the right-click-background-drag path never
+	// captures providers — so a Button1 release always terminates capture.
+	if leftReleased {
 		if a.capturedWindow != nil {
 			if mdh, ok := a.capturedWindow.Content.(MouseDragHandler); ok {
 				mdh.HandleMouseRelease(ev, a.capturedWindow.Bounds.Inner())
@@ -276,18 +323,19 @@ func (a *App) dispatchMouse(ev *tcell.EventMouse) {
 		return
 	}
 
-	// Drag-in-progress takes priority (window-chrome drags).
-	if a.drag.kind != dragNone && btn&tcell.Button1 != 0 {
+	// Drag-in-progress takes priority (window-chrome drags). Continue
+	// tracking motion while the initiating button is still held.
+	if a.drag.kind != dragNone && btn&a.drag.dragButton() != 0 {
 		a.continueDrag(mx, my)
 		return
 	}
 
-	if !pressed {
+	if !leftPressed && !rightPressed {
 		return
 	}
 
-	// Menu bar gets first crack at presses.
-	if a.MenuBar != nil && a.MenuBar.HandleMousePress(mx, my) {
+	// Menu bar gets first crack at presses — primary button only.
+	if leftPressed && a.MenuBar != nil && a.MenuBar.HandleMousePress(mx, my) {
 		return
 	}
 
@@ -296,6 +344,40 @@ func (a *App) dispatchMouse(ev *tcell.EventMouse) {
 	if w == nil {
 		return
 	}
+
+	// Background drag — move the window without changing z-order.
+	// The set of accepted gestures lives in Settings.BackgroundDragChords
+	// so each host can pick what makes sense for it (right-click in
+	// terminals, Shift+click in browsers, both, or nothing). Always
+	// scoped to the title zone — other zones do their normal action.
+	// A matching click without a drag does nothing.
+	var pressedBtn tcell.ButtonMask
+	switch {
+	case leftPressed:
+		pressedBtn = tcell.Button1
+	case rightPressed:
+		pressedBtn = tcell.Button2
+	}
+	if pressedBtn != 0 && zone == HitTitle &&
+		a.Settings.IsBackgroundDragChord(pressedBtn, ev.Modifiers()) {
+		a.recordClick(mx, my, w)
+		a.drag = dragState{
+			kind:   dragMove,
+			button: pressedBtn,
+			window: w,
+			offX:   mx - w.Bounds.X,
+			offY:   my - w.Bounds.Y,
+		}
+		return
+	}
+
+	// Plain right-click outside an enabled chord has no built-in handler
+	// in foxpro today (no context menus). Drop it; content providers
+	// can still observe it via their own MouseHandler if they care.
+	if rightPressed {
+		return
+	}
+
 	a.Manager.Raise(w)
 	switch zone {
 	case HitTitle:

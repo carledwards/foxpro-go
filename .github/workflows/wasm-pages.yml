@@ -1,0 +1,62 @@
+name: Deploy wasm-hello to GitHub Pages
+
+# Rebuilds the foxpro-go wasm-hello example and publishes web/ to
+# GitHub Pages whenever something that affects the demo changes.
+# Manual re-runs also possible via the Actions tab.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app.go'
+      - 'draw.go'
+      - 'settings.go'
+      - 'wasm/**'
+      - 'examples/wasm-hello/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/wasm-pages.yml'
+  workflow_dispatch:
+
+# GitHub Pages deployment via Actions needs these scopes.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. cancel-in-progress=false means a queued
+# run that arrives mid-deploy waits its turn instead of aborting the
+# in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build wasm-hello
+        run: make -C examples/wasm-hello build
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload web/ as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: examples/wasm-hello/web
+
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

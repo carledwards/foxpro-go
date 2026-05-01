@@ -138,8 +138,10 @@ func drawWindow(screen tcell.Screen, w *Window, theme Theme, settings Settings, 
 	// provider implements Scrollable and the content extent exceeds the
 	// visible viewport. Drawn on any window that has scrollable content
 	// (not gated on focus) so they stay visible during transient
-	// states like resize drags.
-	if w.Content != nil {
+	// states like resize drags. Skipped when the window has no distinct
+	// body — the horizontal bar's row would otherwise collide with the
+	// title chrome on a shaded (1-row) window.
+	if w.Content != nil && b.H >= 3 {
 		if scr, ok := w.Content.(Scrollable); ok {
 			drawScrollbars(screen, b, scr, frameStyle, theme.TitleAccent)
 		}
