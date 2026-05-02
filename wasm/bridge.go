@@ -55,16 +55,19 @@ func Install(app *foxpro.App, screen tcell.SimulationScreen) {
 	b := &bridge{app: app, screen: screen}
 
 	js.Global().Set(BridgeName, js.ValueOf(map[string]any{
-		"size":         js.FuncOf(b.size),
-		"snapshot":     js.FuncOf(b.snapshot),
-		"injectKey":    js.FuncOf(b.injectKey),
-		"injectMouse":  js.FuncOf(b.injectMouse),
-		"resize":       js.FuncOf(b.resize),
-		"quit":         js.FuncOf(b.quit),
-		"keys":         keysMap(),
-		"mods":         modsMap(),
-		"buttons":      buttonsMap(),
-		"defaultColor": int(DefaultColor),
+		"size":           js.FuncOf(b.size),
+		"snapshot":       js.FuncOf(b.snapshot),
+		"injectKey":      js.FuncOf(b.injectKey),
+		"injectMouse":    js.FuncOf(b.injectMouse),
+		"resize":         js.FuncOf(b.resize),
+		"quit":           js.FuncOf(b.quit),
+		"pixelLayers":     js.FuncOf(b.pixelLayers),
+		"pixelLayerData":  js.FuncOf(b.pixelLayerData),
+		"pixelTintColors": js.FuncOf(b.pixelTintColors),
+		"keys":           keysMap(),
+		"mods":           modsMap(),
+		"buttons":        buttonsMap(),
+		"defaultColor":   int(DefaultColor),
 	}))
 
 	if cb := js.Global().Get(ReadyCallback); cb.Type() == js.TypeFunction {
@@ -110,6 +113,113 @@ func (b *bridge) snapshot(this js.Value, args []js.Value) any {
 		js.CopyBytesToJS(args[0], buf)
 	}
 	return []any{w, h}
+}
+
+// pixelLayers returns descriptors for every visible window whose
+// content provider implements foxpro.PixelContent. Each descriptor
+// gives the window's body rectangle in cell coords (so the host can
+// position an overlay) plus the provider's preferred pixel buffer
+// dimensions (so the host can size the surface).
+//
+//	[
+//	  { id, cellX, cellY, cellW, cellH, pxW, pxH, zIndex },
+//	  ...
+//	]
+//
+// zIndex matches the manager's z-order — entries are returned in
+// back-to-front order so a host that only draws the top one or
+// stacks them respects foxpro's window stacking.
+func (b *bridge) pixelLayers(this js.Value, args []js.Value) any {
+	out := []any{}
+	for i, w := range b.app.Manager.AllWindows() {
+		pc, ok := w.Content.(foxpro.PixelContent)
+		if !ok {
+			continue
+		}
+		inner := w.Bounds.Inner()
+		if inner.W <= 0 || inner.H <= 0 {
+			continue
+		}
+		pxW, pxH := pc.PixelSize()
+		if pxW <= 0 || pxH <= 0 {
+			continue
+		}
+		// Default: pixel layer fills the entire window body. If the
+		// provider implements PixelRectContent, use the sub-rect
+		// instead — coords relative to inner. Useful for content
+		// that mixes pixel and cell rendering (e.g. a VIC display
+		// whose framebuffer is graphics but whose buttons stay cells).
+		cellX, cellY, cellW, cellH := inner.X, inner.Y, inner.W, inner.H
+		if pr, ok := w.Content.(foxpro.PixelRectContent); ok {
+			rx, ry, rw, rh := pr.PixelRect()
+			if rw > 0 && rh > 0 {
+				cellX = inner.X + rx
+				cellY = inner.Y + ry
+				cellW = rw
+				cellH = rh
+			}
+		}
+		out = append(out, map[string]any{
+			"id":     pc.PixelLayerID(),
+			"cellX":  cellX,
+			"cellY":  cellY,
+			"cellW":  cellW,
+			"cellH":  cellH,
+			"pxW":    pxW,
+			"pxH":    pxH,
+			"zIndex": i,
+		})
+	}
+	return out
+}
+
+// pixelTintColors returns the list of cell-background colors that
+// should be treated as a "tint" over pixel content rather than an
+// opaque overwrite. Each entry is a packed RGB integer (the same
+// format as the snapshot buffer's bg field).
+//
+// When the host's compositor finds a pixel-sentinel cell whose
+// background color matches one of these, it draws the pixel data
+// AND then layers a translucent fill of the bg color on top — so
+// foxpro decorations like drop shadows appear *as* a darkening of
+// the underlying canvas instead of obliterating it.
+//
+// Currently returns the active theme's Shadow bg color; future
+// versions may pull from a Settings.PixelTintColors slice for app-
+// supplied tints (frosted-window effects, focus highlights, etc.).
+func (b *bridge) pixelTintColors(this js.Value, args []js.Value) any {
+	out := []any{}
+	_, bg, _ := b.app.Theme.Shadow.Decompose()
+	out = append(out, int(encodeColor(bg)))
+	return out
+}
+
+// pixelLayerData fills the supplied Uint8Array with the named
+// layer's current RGBA pixel data — 4 bytes per pixel, row-major.
+// Returns true if the layer was found and filled, false otherwise.
+//
+//	args[0] string — layer ID matching foxpro.PixelContent.PixelLayerID
+//	args[1] Uint8Array — buffer to fill, sized 4*pxW*pxH bytes
+func (b *bridge) pixelLayerData(this js.Value, args []js.Value) any {
+	if len(args) < 2 {
+		return false
+	}
+	id := args[0].String()
+	for _, w := range b.app.Manager.AllWindows() {
+		pc, ok := w.Content.(foxpro.PixelContent)
+		if !ok || pc.PixelLayerID() != id {
+			continue
+		}
+		pxW, pxH := pc.PixelSize()
+		if pxW <= 0 || pxH <= 0 {
+			return false
+		}
+		buf := make([]byte, 4*pxW*pxH)
+		pc.DrawPixels(buf)
+		js.CopyBytesToJS(args[1], buf)
+		return true
+	}
+	return false
 }
 
 func (b *bridge) injectKey(this js.Value, args []js.Value) any {
