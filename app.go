@@ -25,6 +25,16 @@ type App struct {
 	// Return true to consume.
 	OnKey func(ev *tcell.EventKey) bool
 
+	// DesktopDraw, when non-nil, runs each frame after the default
+	// desktop fill and before any windows are rendered. The callback
+	// gets the screen, the desktop rectangle (the area below the menu
+	// bar and above the status bar), and the active theme — useful for
+	// ASCII-art backdrops, marquees, or animated effects that should
+	// sit behind every window. The default fill still runs, so the
+	// callback only needs to write the cells it wants to change;
+	// untouched cells keep the theme's desktop pattern.
+	DesktopDraw func(screen tcell.Screen, desktop Rect, theme Theme)
+
 	quit bool
 	drag dragState
 	prevButtons tcell.ButtonMask
@@ -44,6 +54,11 @@ type App struct {
 	// Command window reference, kept so F2 / ToggleCommandWindow can
 	// find it across opens and closes.
 	cmdWindow *Window
+
+	// Active wait-window overlay (FoxPro WAIT WINDOW), or nil. Only one
+	// at a time. See ShowWaitWindow / DismissWaitWindow.
+	waitWindow   *WaitWindow
+	waitTickStop func() // stops the redraw heartbeat that drives timeout dismissal
 
 	// Mouse capture — when a MouseHandler press returns true and the
 	// provider also implements MouseDragHandler, subsequent
@@ -187,6 +202,15 @@ func (a *App) dispatchKey(ev *tcell.EventKey) {
 	// Terminals don't deliver modifier-only events, so every EventKey
 	// we see qualifies as input.
 	a.mouseVisible = false
+
+	// Wait windows dismiss on the next key event in every mode, but
+	// the key itself still flows through to normal dispatch — it
+	// would feel broken if a typed character disappeared because a
+	// toast happened to be on screen.
+	if a.waitWindow != nil {
+		a.DismissWaitWindow()
+		// fall through
+	}
 
 	if a.OnKey != nil && a.OnKey(ev) {
 		return
@@ -334,6 +358,15 @@ func (a *App) dispatchMouse(ev *tcell.EventMouse) {
 	}
 
 	if !leftPressed && !rightPressed {
+		return
+	}
+
+	// Wait windows in WaitNoWait / WaitTimeout modes dismiss on a
+	// mouse press. The press is consumed — it does not reach windows
+	// or the menu bar. (WaitForKey ignores mouse and is only dismissed
+	// by keys; the press falls through to normal dispatch.)
+	if a.waitWindow != nil && a.waitWindow.dismissesOnMouse() {
+		a.DismissWaitWindow()
 		return
 	}
 
@@ -592,6 +625,137 @@ func (a *App) zoomWindow(w *Window) {
 	w.maximized = true
 }
 
+// ShowWaitWindow registers w as the active wait-window overlay. It
+// renders on top of all manager windows on the next draw and
+// dismisses when the user presses a key, presses a mouse button (in
+// the appropriate modes), or — in WaitTimeout mode — when w.Timeout
+// has elapsed.
+//
+// Calling ShowWaitWindow while another wait window is in flight
+// replaces it silently (the previous one's OnDismiss does NOT fire,
+// matching the "newest message wins" expectation of toast UX).
+//
+// While a wait window is active the app drives a 100ms redraw
+// heartbeat so timeout dismissal is responsive without depending on
+// user input. The heartbeat is stopped on dismissal.
+func (a *App) ShowWaitWindow(w *WaitWindow) {
+	if w == nil {
+		return
+	}
+	if w.Timeout == 0 {
+		w.Timeout = waitDefaultTimeout
+	}
+	if w.Row == 0 {
+		w.Row = 2
+	}
+	// Replace any in-flight wait window without firing its OnDismiss.
+	a.waitWindow = nil
+	if a.waitTickStop != nil {
+		a.waitTickStop()
+		a.waitTickStop = nil
+	}
+	w.appearedAt = time.Now()
+	w.prepare()
+	a.waitWindow = w
+	a.waitTickStop = a.Tick(100*time.Millisecond, nil)
+}
+
+// DismissWaitWindow tears down the active wait window (if any) and
+// fires its OnDismiss callback. Safe to call when no wait window is
+// active. Used internally by the dispatch path; apps can also call it
+// to dismiss programmatically.
+func (a *App) DismissWaitWindow() {
+	w := a.waitWindow
+	if w == nil {
+		return
+	}
+	a.waitWindow = nil
+	if a.waitTickStop != nil {
+		a.waitTickStop()
+		a.waitTickStop = nil
+	}
+	if w.OnDismiss != nil {
+		w.OnDismiss()
+	}
+}
+
+// drawWaitWindow paints the active wait window if any. Called by
+// draw() after windows but before the menu bar so the toast layers on
+// top of content but the menu bar still wins for any overlap at row 0.
+func (a *App) drawWaitWindow() {
+	w := a.waitWindow
+	if w == nil {
+		return
+	}
+	if w.timedOut() {
+		// Lazy timeout dismissal — happens here rather than on a timer
+		// goroutine so it always runs on the UI thread.
+		a.DismissWaitWindow()
+		return
+	}
+
+	sw, _ := a.Screen.Size()
+	x := sw - w.boxWidth - waitShadowOffsetX - 1
+	if x < 0 {
+		x = 0
+	}
+	y := w.Row
+
+	style := a.Theme.WaitWindow
+	if w.UseColors {
+		style = tcell.StyleDefault.Foreground(w.Foreground).Background(w.Background)
+	}
+
+	// Drop shadow — right strip + bottom strip, in the theme's shadow
+	// style. Skipped where it would clip off-screen.
+	for row := 0; row < w.boxHeight; row++ {
+		for col := 0; col < waitShadowOffsetX; col++ {
+			sx := x + w.boxWidth + col
+			sy := y + row + waitShadowOffsetY
+			if sx < 0 || sx >= sw || sy < 0 {
+				continue
+			}
+			shadeCell(a.Screen, sx, sy, a.Theme.Shadow)
+		}
+	}
+	for col := 0; col < w.boxWidth+waitShadowOffsetX; col++ {
+		sx := x + col
+		sy := y + w.boxHeight
+		if sx < 0 || sx >= sw || sy < 0 {
+			continue
+		}
+		shadeCell(a.Screen, sx, sy, a.Theme.Shadow)
+	}
+
+	// Top border.
+	a.setWaitCell(x, y, '┌', style, sw)
+	for i := 1; i < w.boxWidth-1; i++ {
+		a.setWaitCell(x+i, y, '─', style, sw)
+	}
+	a.setWaitCell(x+w.boxWidth-1, y, '┐', style, sw)
+
+	// Content row.
+	a.setWaitCell(x, y+1, '│', style, sw)
+	for i, ch := range w.paddedMsg {
+		a.setWaitCell(x+1+i, y+1, ch, style, sw)
+	}
+	a.setWaitCell(x+w.boxWidth-1, y+1, '│', style, sw)
+
+	// Bottom border.
+	a.setWaitCell(x, y+2, '└', style, sw)
+	for i := 1; i < w.boxWidth-1; i++ {
+		a.setWaitCell(x+i, y+2, '─', style, sw)
+	}
+	a.setWaitCell(x+w.boxWidth-1, y+2, '┘', style, sw)
+}
+
+func (a *App) setWaitCell(x, y int, ch rune, style tcell.Style, screenW int) {
+	if x < 0 || x >= screenW {
+		return
+	}
+	a.Screen.SetContent(x, y, ch, nil, style)
+}
+
 // ToggleCommandWindow shows the command window if hidden, or removes
 // it from the manager if currently shown. The Window instance itself
 // is created once and reused so the command history, input buffer,
@@ -734,16 +898,24 @@ func (a *App) draw() {
 		bottomReserved = 1
 	}
 	// Desktop fill (below the menu bar, above the status bar).
-	fillRectRune(a.Screen,
-		Rect{X: 0, Y: topReserved, W: w, H: h - topReserved - bottomReserved},
-		a.Theme.DesktopRune, a.Theme.Desktop)
+	desktopRect := Rect{X: 0, Y: topReserved, W: w, H: h - topReserved - bottomReserved}
+	fillRectRune(a.Screen, desktopRect, a.Theme.DesktopRune, a.Theme.Desktop)
+	if a.DesktopDraw != nil {
+		a.DesktopDraw(a.Screen, desktopRect, a.Theme)
+	}
 
 	if a.Settings.ShowStatusBar {
 		hintStyle := a.Theme.MenuBar
 		fillRect(a.Screen, Rect{X: 0, Y: h - 1, W: w, H: 1}, hintStyle)
 
-		// Left: built-in app hints.
-		left := " F1: status  F2: cmd  F10: menu  F6: next window  Esc: quit "
+		// Left: built-in app hints. Hosts can override via
+		// Settings.StatusBarLeft when they bind a different key set
+		// (or want a shorter hint — e.g. browser hosts where F1/F2/F6
+		// matter less than knowing how to dismiss the overlay).
+		left := a.Settings.StatusBarLeft
+		if left == "" {
+			left = " F1: status  F2: cmd  F10: menu  F6: next window  Esc: quit "
+		}
 		drawString(a.Screen, 0, h-1, left, hintStyle)
 
 		// Right: contextual hint from the active window's content
@@ -763,6 +935,11 @@ func (a *App) draw() {
 	}
 
 	a.Manager.Draw(a.Screen, a.Theme, a.Settings)
+
+	// Wait window overlays sit above all manager windows but below the
+	// menu bar — so a wait window at row 1 is visible, but if a wait
+	// window were anchored at row 0 the menu would still win.
+	a.drawWaitWindow()
 
 	// Menu bar drawn last so its popup paints over everything.
 	if a.MenuBar != nil {

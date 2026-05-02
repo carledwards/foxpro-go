@@ -11,6 +11,13 @@ type Settings struct {
 	// ShowStatusBar controls whether the bottom hint row is drawn.
 	// When false the desktop reclaims that row.
 	ShowStatusBar bool
+	// StatusBarLeft, when non-empty, replaces the default left-side
+	// hint text on the status bar (the "F1: status  F2: cmd  F10: menu
+	// F6: next window  Esc: quit" string). Hosts that bind a different
+	// set of keys — or none of them — can use this to surface a
+	// shorter, app-appropriate hint without disabling the bar.
+	// Empty means use the default.
+	StatusBarLeft string
 	// ThemeIndex is the currently selected entry of ThemePresets. The
 	// settings window flips this and re-applies the corresponding palette
 	// to App.Theme; client code should not edit it directly.

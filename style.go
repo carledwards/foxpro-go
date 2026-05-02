@@ -50,6 +50,12 @@ type Theme struct {
 	// Use for the currently focused row/control inside a content
 	// provider so keyboard focus is unmistakable.
 	Focus tcell.Style
+
+	// WaitWindow is the style used for transient WAIT WINDOW
+	// notifications (toast-style overlays). Defaults to the FoxPro
+	// dialog look — white text on the CGA "Magenta" slot, which is
+	// the deep purple-maroon DOS apps used for modal-ish messages.
+	WaitWindow tcell.Style
 }
 
 // CGA palette accessors — kept as package-level values for back-compat
@@ -104,6 +110,8 @@ func ThemeFromPalette(p Palette) Theme {
 		Shadow:        tcell.StyleDefault.Background(p.Black).Foreground(p.DarkGray),
 
 		Focus: tcell.StyleDefault.Background(p.Brown).Foreground(p.White),
+
+		WaitWindow: tcell.StyleDefault.Background(p.Magenta).Foreground(p.White),
 	}
 }
 
