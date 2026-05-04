@@ -105,6 +105,32 @@ func DrawButton(screen tcell.Screen, x, y, w, h int, label string, focused bool,
 	}
 }
 
+// DrawDialogButton renders a FoxPro-style dialog button — the
+// "« Find »" / "< Cancel >" chevron form, drawn flat against the
+// dialog body (no boxed border). A "default" button gets the double-
+// chevron «» variant; non-default buttons use the single-chevron <>.
+// When focused the entire span is repainted in the focusStyle (the
+// blue selection stripe inside a magenta dialog).
+//
+// label is the visible text without the surrounding chevrons or
+// padding spaces; the function inserts a single space between the
+// chevron and the label on each side. Returns the total width drawn
+// so callers can lay multiple buttons out predictably.
+func DrawDialogButton(screen tcell.Screen, x, y int, label string, defaultBtn, focused bool, normal, focus tcell.Style) int {
+	left, right := "< ", " >"
+	if defaultBtn {
+		left, right = "« ", " »"
+	}
+	total := len(left) + len(label) + len(right)
+	style := normal
+	if focused {
+		style = focus
+		fillSpan(screen, x, y, total, style)
+	}
+	drawString(screen, x, y, left+label+right, style)
+	return total
+}
+
 // SeparatorRow draws a horizontal `─` divider of the given width.
 func SeparatorRow(screen tcell.Screen, x, y, width int, style tcell.Style) {
 	for i := 0; i < width; i++ {
@@ -112,10 +138,15 @@ func SeparatorRow(screen tcell.Screen, x, y, width int, style tcell.Style) {
 	}
 }
 
-// drawString writes s starting at (x,y) in the given style.
+// drawString writes s starting at (x,y), advancing one cell per
+// RUNE. Iterating with `for i, r := range s` would step i by the
+// rune's UTF-8 byte count, so multi-byte runes ("«", "│") would
+// land at the wrong column.
 func drawString(screen tcell.Screen, x, y int, s string, style tcell.Style) {
-	for i, r := range s {
-		screen.SetContent(x+i, y, r, nil, style)
+	col := 0
+	for _, r := range s {
+		screen.SetContent(x+col, y, r, nil, style)
+		col++
 	}
 }
 

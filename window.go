@@ -83,6 +83,25 @@ type Window struct {
 	OnClose  func()
 	OnZoom   func()
 
+	// Dialog flips the window into FoxPro modal-dialog rendering:
+	// magenta body, double-line outer border, single-line inner
+	// border one cell inside, title rendered top-left in yellow.
+	// The framework reads Theme.Dialog (a Scheme) for all colours.
+	// Dialog windows are visually distinct from regular windows but
+	// are not yet enforced as modal — input still routes normally.
+	Dialog bool
+
+	// Borderless skips all framework-drawn chrome: no shadow, no
+	// frame fill, no title bar, no chrome glyphs, no resize handle.
+	// The Content provider gets the full Bounds rect (not Inner) and
+	// is responsible for painting its own background and border. Use
+	// for popups, tooltips, or any overlay that wants full control
+	// over its visual envelope. Combine with Dialog=true for modal
+	// popups; the manager's HitTest also reports only HitBody for
+	// borderless windows so they aren't draggable by the title row
+	// (there is no title row).
+	Borderless bool
+
 	// MinW / MinH are optional minimum dimensions enforced during
 	// drag-resize. Either may be zero (unset) — the framework's
 	// default floor (8 × 3) still applies. Set these to keep the
@@ -115,3 +134,26 @@ const ShadedWidth = 32
 // Shaded reports whether the window is currently in window-shade mode
 // (collapsed to a 1-row title bar).
 func (w *Window) Shaded() bool { return w.shaded }
+
+// Center repositions the window so its bounds are centered inside a
+// (screenW × screenH) area. Width and height are unchanged. Callers
+// usually pull screen dimensions from App.Screen.Size(); a typical
+// use is centering a dialog right before adding it to the manager:
+//
+//	w := cpupicker.NewWindow(...)
+//	sw, sh := app.Screen.Size()
+//	w.Center(sw, sh)
+//	app.Manager.Add(w)
+//
+// Negative offsets are clamped to 0, so a window larger than the
+// screen still renders from the top-left rather than going off-edge.
+func (w *Window) Center(screenW, screenH int) {
+	w.Bounds.X = (screenW - w.Bounds.W) / 2
+	w.Bounds.Y = (screenH - w.Bounds.H) / 2
+	if w.Bounds.X < 0 {
+		w.Bounds.X = 0
+	}
+	if w.Bounds.Y < 0 {
+		w.Bounds.Y = 0
+	}
+}

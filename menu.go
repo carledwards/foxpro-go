@@ -3,6 +3,7 @@ package foxpro
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 )
@@ -240,40 +241,54 @@ func (mb *MenuBar) drawTray(s tcell.Screen, theme Theme, screenW, menuEnd int) {
 	for i, t := range mb.Tray {
 		texts[i] = t.display()
 	}
+	// Separator between cells reads as " │ " — single space on each
+	// side of the pipe gives a clean ‘<item> | <item>’ layout.
+	// Items themselves are drawn without per-item padding; the
+	// surrounding spaces come from the separator only. One trailing
+	// column sits blank at the very right edge for breathing room
+	// from the screen border.
+	//
+	// Width must be measured in runes (cells), not bytes — '│' is
+	// 3 bytes in UTF-8, so len(sep) reports 5 while the renderer
+	// only consumes 3 cells. Using bytes here would reserve more
+	// space than the separator paints and leave a phantom gap.
 	const sep = " │ "
-	// Build right-to-left so the rightmost item always shows.
+	const rightPad = 1
+	sepW := utf8.RuneCountInString(sep)
 	type span struct {
 		start, end, idx int
 	}
 	avail := screenW - menuEnd - 1
-	x := screenW - 1
+	right := screenW - 1 - rightPad // rightmost column an item may occupy
 	spans := make([]span, 0, len(texts))
 	for i := len(texts) - 1; i >= 0; i-- {
 		t := texts[i]
 		if t == "" {
 			continue
 		}
-		need := len(t) + 2 // 1 space pad each side
+		tW := utf8.RuneCountInString(t)
+		need := tW
 		if i > 0 {
-			need += len(sep)
+			need += sepW
 		}
 		if need > avail {
 			break
 		}
-		end := x - 1
-		start := end - len(t) - 1
+		end := right
+		start := end - tW + 1
 		spans = append(spans, span{start: start, end: end, idx: i})
-		x = start - len(sep)
+		// Separator (if any) takes start-sepW..start-1; next
+		// item's rightmost column is one cell further left.
+		right = start - sepW - 1
 		avail -= need
 	}
-	// Paint left-to-right for natural cursor / overdraw order.
 	for j := len(spans) - 1; j >= 0; j-- {
 		sp := spans[j]
 		t := texts[sp.idx]
-		drawString(s, sp.start, 0, " "+t+" ", theme.MenuBar)
-		// Separator before this item (when not first visible).
+		drawString(s, sp.start, 0, t, theme.MenuBar)
+		// Separator before this item (when not the leftmost visible).
 		if j < len(spans)-1 {
-			drawString(s, sp.start-len(sep), 0, sep, theme.MenuBar)
+			drawString(s, sp.start-sepW, 0, sep, theme.MenuBar)
 		}
 		mb.trayHits = append(mb.trayHits, trayHit{startX: sp.start, endX: sp.end, item: sp.idx})
 	}

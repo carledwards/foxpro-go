@@ -17,10 +17,17 @@ func fillRectRune(screen tcell.Screen, r Rect, ch rune, style tcell.Style) {
 	}
 }
 
-// drawString writes s starting at (x,y). No clipping past screen edge.
+// drawString writes s starting at (x,y), advancing one cell per
+// RUNE. No clipping past screen edge. `for i, r := range s` would
+// advance i by the rune's UTF-8 byte count, which is fine for ASCII
+// but puts multi-byte runes (e.g. "│") at the wrong column and
+// leaves gaps for the bytes that "weren't" used. Counting runes
+// ourselves keeps a 3-rune separator " │ " exactly 3 cells wide.
 func drawString(screen tcell.Screen, x, y int, s string, style tcell.Style) {
-	for i, r := range s {
-		screen.SetContent(x+i, y, r, nil, style)
+	col := 0
+	for _, r := range s {
+		screen.SetContent(x+col, y, r, nil, style)
+		col++
 	}
 }
 
@@ -38,6 +45,33 @@ func shadeCell(screen tcell.Screen, x, y int, style tcell.Style) {
 // drawWindow renders a window's drop shadow, frame, title bar, and delegates
 // the inside to its ContentProvider.
 func drawWindow(screen tcell.Screen, w *Window, theme Theme, settings Settings, focused bool) {
+	if w.Borderless {
+		// Borderless: provider paints frame + body itself. The
+		// framework still draws the drop shadow so borderless
+		// overlays (popups, tooltips) read as floating above
+		// the desktop with the same visual cue as a regular
+		// window. Disable globally via Settings.ShowShadows.
+		if !w.shaded && settings.ShowShadows {
+			b := w.Bounds
+			const sox, soy = 2, 1
+			for y := b.Y + soy; y < b.Y+soy+b.H; y++ {
+				for x := b.X + sox; x < b.X+sox+b.W; x++ {
+					if x < b.X+b.W && y < b.Y+b.H {
+						continue
+					}
+					shadeCell(screen, x, y, theme.Shadow)
+				}
+			}
+		}
+		if w.Content != nil && w.Bounds.W > 0 && w.Bounds.H > 0 {
+			w.Content.Draw(screen, w.Bounds, theme, focused)
+		}
+		return
+	}
+	if w.Dialog {
+		drawDialogWindow(screen, w, theme, settings, focused)
+		return
+	}
 	b := w.Bounds
 
 	// Drop shadow: a full window-sized rect offset by (+2, +1). The window
@@ -222,4 +256,114 @@ func drawScrollbars(screen tcell.Screen, b Rect, scr Scrollable, frame tcell.Sty
 func frameBG(s tcell.Style) tcell.Color {
 	_, bg, _ := s.Decompose()
 	return bg
+}
+
+// drawDialogWindow renders a Window flagged as Dialog: a single-line
+// ┌───┐ border around a magenta body using theme.Dialog. The
+// window's title (if non-empty) is rendered centered on the first
+// body row, in yellow-on-magenta when focused.
+//
+// Content area (what gets passed to Content.Draw) is the rect
+// strictly inside the border, *below* the title row (so the
+// provider can lay out from y=0 without re-drawing the title).
+// DialogInner returns the same rect.
+//
+// Dialogs ignore w.Closable / w.Zoomable / shading / scrollbars —
+// any chrome embedded in the dialog (OK button, Cancel button) is
+// the provider's job. Resize handle is also suppressed.
+//
+// Single-line glyphs are intentional: many bitmap and canvas fonts
+// render the double-line ║═ runes with vertical gaps between cell
+// rows, which looks broken on the wasm canvas. Single-line ─│
+// is universally supported and reads as a clean continuous frame.
+func drawDialogWindow(screen tcell.Screen, w *Window, theme Theme, settings Settings, focused bool) {
+	b := w.Bounds
+	scheme := theme.Dialog
+
+	if scheme.CastsShadow && settings.ShowShadows {
+		const sox, soy = 2, 1
+		for y := b.Y + soy; y < b.Y+soy+b.H; y++ {
+			for x := b.X + sox; x < b.X+sox+b.W; x++ {
+				if x < b.X+b.W && y < b.Y+b.H {
+					continue
+				}
+				shadeCell(screen, x, y, scheme.Shadow)
+			}
+		}
+	}
+
+	// Magenta body (full bounds) — border overpaints the perimeter.
+	fillRect(screen, b, scheme.NormalText)
+
+	// Single-line ┌───┐ border at the perimeter.
+	if b.W >= 2 && b.H >= 2 {
+		drawBoxBorder(screen, b, scheme.Border, dialogBorderBox)
+	}
+
+	// Title — centered on the first body row (one row below the
+	// border), in TitleActive style when focused, TitleIdle when
+	// not. Skipped when w.Title is empty so providers without a
+	// title get the full body height.
+	if w.Title != "" && b.W > 4 && b.H >= 3 {
+		titleStyle := scheme.TitleIdle
+		if focused {
+			titleStyle = scheme.TitleActive
+		}
+		title := w.Title
+		avail := b.W - 2
+		if len(title) > avail {
+			title = title[:avail]
+		}
+		tx := b.X + 1 + (avail-len(title))/2
+		drawString(screen, tx, b.Y+1, title, titleStyle)
+	}
+
+	if w.Content != nil {
+		ci := DialogInner(b)
+		if w.Title != "" {
+			ci.Y++
+			ci.H--
+		}
+		if ci.W >= 1 && ci.H >= 1 {
+			w.Content.Draw(screen, ci, theme, focused)
+		}
+	}
+}
+
+// DialogInner returns the content rect of a Dialog window — the area
+// strictly inside the ┌───┐ border (1 cell in from b on every side).
+// When the window has a non-empty Title the framework draws it on the
+// first row of this rect; the rect passed to Content.Draw is one row
+// shorter to skip the title row.
+func DialogInner(b Rect) Rect {
+	return Rect{X: b.X + 1, Y: b.Y + 1, W: b.W - 2, H: b.H - 2}
+}
+
+// dialogBorderBox is the dialog-border glyph set — single line for
+// solid rendering across fonts.
+var dialogBorderBox = boxGlyphs{tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─', v: '│'}
+
+// boxGlyphs bundles the six runes that make up a rectangular border.
+type boxGlyphs struct{ tl, tr, bl, br, h, v rune }
+
+// drawBoxBorder paints a 1-cell border around r using the given
+// style and glyph set. r.W and r.H must be ≥ 2.
+func drawBoxBorder(screen tcell.Screen, r Rect, style tcell.Style, g boxGlyphs) {
+	right := r.X + r.W - 1
+	bot := r.Y + r.H - 1
+	// Top + bottom edges.
+	for x := r.X + 1; x < right; x++ {
+		screen.SetContent(x, r.Y, g.h, nil, style)
+		screen.SetContent(x, bot, g.h, nil, style)
+	}
+	// Left + right edges.
+	for y := r.Y + 1; y < bot; y++ {
+		screen.SetContent(r.X, y, g.v, nil, style)
+		screen.SetContent(right, y, g.v, nil, style)
+	}
+	// Corners.
+	screen.SetContent(r.X, r.Y, g.tl, nil, style)
+	screen.SetContent(right, r.Y, g.tr, nil, style)
+	screen.SetContent(r.X, bot, g.bl, nil, style)
+	screen.SetContent(right, bot, g.br, nil, style)
 }

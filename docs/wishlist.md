@@ -37,6 +37,88 @@ of:
   cycles controls, Esc cancels, Enter triggers default button. Modal
   while open: blocks input to other windows.
 - **Notes:** see `foundation-ui-spec.md` "Dialog Boxes" section.
+- **Partial landing:** `Theme.Dialog Scheme` + `Window.Dialog bool`
+  + `widgets.DrawDialogButton` + `dialog.Picker` (a "choose one of N
+  options" content provider with radio rows + description box +
+  OK / Cancel buttons + Tab cycle + mouse handling — the lift from
+  6502-sim's CPU/Demo/Speed pickers). The window draws a single-line
+  ┌──┐ frame around the magenta scheme, the title sits centered on
+  the first body row, and `Manager.ActiveDialog()` enforces
+  modality: while a Dialog is active, FocusNext/Prev no-op, Raise on
+  a non-dialog window is blocked, F10 / Alt-accel menu activation
+  is suppressed, and mouse presses on other windows are swallowed.
+  Esc routes to the dialog content before the framework's quit
+  chord. Still missing: tab-control widget, default-button-on-Enter
+  convention as a framework primitive, per-dialog accelerator-letter
+  routing, additional dialog providers (Confirm yes/no, Input,
+  ListPicker without descriptions).
+
+### FoxPro `Scheme` model — Alert + DialogPop schemes
+- **Status:** idea
+- **Use case:** FoxPro's color configurator organized styling into
+  named schemes (Windows / Alerts / Dialogs / Dialog Pops / Menu Bar /
+  Menu Pops), each with the same 10 slots. We've ported the Dialog
+  scheme; Alert (red, for error toasts) and DialogPop (popup
+  dropdown / spinner overlay) are the next two visual roles that show
+  up in real apps.
+- **Sketch:** add `Theme.Alert Scheme` (red background) and
+  `Theme.DialogPop Scheme` (cyan body with single white border, drop
+  shadow, blue current-row stripe — the dropdown / combobox popup
+  look). Wire them across the 5 palette presets.
+- **Notes:** also worth eventually promoting the Window styles
+  (`WindowBG` / `Border` / `TitleActive` / `Focus` / `Shadow`) into
+  `Theme.Window Scheme` so the flat fields disappear and every
+  scheme reads from the same 10-slot struct. Holding off until a
+  third scheme arrives so the migration cost has a real driver.
+
+### Dialog widgets — listbox, picker field, numeric input
+- **Status:** idea
+- **Use case:** real FoxPro dialogs (file pickers, printer setup,
+  search/replace) lean on a small set of input widgets that we don't
+  have yet. Each is a small lift but worth doing only when the first
+  consumer dialog needs them.
+- **Sketch:**
+  - **Listbox** — framed cyan box with vertical scrollbar (▲▼◆ on a
+    gray track), `▶` caret on the current row. `widgets.DrawListbox`
+    + a `Listbox` stateful widget with mouse + key handling.
+  - **Picker field** — boxed value display (the "PRN" combobox in
+    FoxPro's Printer Setup). White inner border, blue bg when
+    focused. Click or Down opens a `DialogPop` dropdown.
+  - **Numeric input** — cyan strip with right-aligned digits and
+    Up/Down to nudge. Trivial wrapper around `InputProvider` once it
+    grows a numeric mode + alignment hint.
+- **Notes:** the `Theme.DialogPop Scheme` (above) is a prerequisite
+  for the picker-field dropdown.
+
+### Stateful RadioGroup widget
+- **Status:** lift
+- **Proposed by:** 6502-sim-tui (cpupicker)
+- **Use case:** the cpupicker dialog hand-rolls radio rows: tracks
+  the selected index, draws "(•) Label" / "( ) Label", maintains
+  per-row hit rects for mouse, handles Up/Down to move selection,
+  and Space/Enter to confirm. Every dialog with a radio group
+  re-implements the same loop.
+- **Sketch:** stateful `widgets.RadioGroup` (or a higher-level
+  `RadioGroupProvider` if it makes sense) holding `Options []string`,
+  `Selected int`, `OnChange func(int)`, plus a stable layout
+  (`Draw(canvas, x, y, width)`) and the standard input handlers
+  (`HandleKey` for Up/Down/Space, `HandleMouse` matching click rows).
+  Widget should follow the FoxPro convention where the dot follows
+  highlight (sel == focus index) and clicking a row both moves the
+  highlight and selects.
+- **Notes:** there's already a stateless `widgets.DrawRadio` —
+  RadioGroup wraps it with the row hit-rects + state machine.
+
+### Disabled / accelerator-letter button states
+- **Status:** idea
+- **Use case:** FoxPro buttons can be disabled (rendered in gray)
+  and show their accelerator letter in yellow ("« **S**et »"). The
+  current `widgets.DrawDialogButton` only handles default vs normal
+  vs focused; disabled and accelerator are still TODO.
+- **Sketch:** add `disabled bool` and `accelIdx int` (-1 = none) args
+  to `DrawDialogButton`. Disabled = `Scheme.DisabledCtrl` for the
+  whole label; accelerator = recolour one rune to `Scheme.HotKey`
+  (yellow) inside the focused/unfocused base style.
 
 ### Persistence
 - **Status:** idea

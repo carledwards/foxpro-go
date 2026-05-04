@@ -67,7 +67,7 @@ func setupDemo(a *foxpro.App) {
 		"Click another window to bring it forward.",
 		"",
 		"F10 opens the menu bar; Alt+letter for accelerators.",
-		"F2 toggles the command window.",
+		"Ctrl+F2 toggles the command window.",
 	})
 	a.Manager.Add(foxpro.NewWindow(
 		"Hello",
@@ -108,7 +108,7 @@ func setupDemo(a *foxpro.App) {
 					))
 					setStatus(fmt.Sprintf("opened window #%d", n))
 				}},
-				{Label: "&Command Window", Hotkey: "F2", OnSelect: a.ToggleCommandWindow},
+				{Label: "&Command Window", Hotkey: "Ctrl+F2", OnSelect: a.ToggleCommandWindow},
 				{Separator: true},
 				// "Quit" reloads the page rather than calling app.Quit.
 				// In a browser, app.Quit ends the Go runtime and bricks

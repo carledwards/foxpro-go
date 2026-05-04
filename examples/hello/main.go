@@ -77,7 +77,7 @@ func main() {
 					app.Manager.Add(foxpro.NewSettingsWindow(app))
 					setStatus("opened settings")
 				}},
-				{Label: "&Command Window", Hotkey: "F2", OnSelect: app.ToggleCommandWindow},
+				{Label: "&Command Window", Hotkey: "Ctrl+F2", OnSelect: app.ToggleCommandWindow},
 				{Separator: true},
 				{Label: "E&xit", Hotkey: "Esc", OnSelect: app.Quit},
 			},

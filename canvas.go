@@ -118,6 +118,12 @@ func (s *ScrollState) ScrollOffset() (int, int) { return s.X, s.Y }
 // SetScrollOffset clamps and stores a new offset. The clamp uses the
 // inner size and natural size from the most recent Draw, so calling
 // SetScrollOffset before the first Draw resolves to (0, 0).
+//
+// Upper bound is max(0, natural - inner): when content fits in the
+// viewport, scrolling is pinned at zero. An earlier version of this
+// function only applied the upper clamp when natural >= inner, which
+// let providers whose content fit comfortably (e.g. the Video window
+// after the hex strip was removed) scroll arbitrarily far down.
 func (s *ScrollState) SetScrollOffset(x, y int) {
 	if x < 0 {
 		x = 0
@@ -125,10 +131,18 @@ func (s *ScrollState) SetScrollOffset(x, y int) {
 	if y < 0 {
 		y = 0
 	}
-	if mx := s.naturalW - s.lastInnerW; mx >= 0 && x > mx {
+	mx := s.naturalW - s.lastInnerW
+	if mx < 0 {
+		mx = 0
+	}
+	if x > mx {
 		x = mx
 	}
-	if my := s.naturalH - s.lastInnerH; my >= 0 && y > my {
+	my := s.naturalH - s.lastInnerH
+	if my < 0 {
+		my = 0
+	}
+	if y > my {
 		y = my
 	}
 	s.X, s.Y = x, y

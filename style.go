@@ -2,6 +2,38 @@ package foxpro
 
 import "github.com/gdamore/tcell/v2"
 
+// Scheme is one row of FoxPro's color configurator: a named visual
+// role (Window, Dialog, Alert, DialogPop, ...) with the same 10
+// slots in each. We currently only populate Theme.Dialog from this
+// struct; the desktop-window styles still live as flat fields on
+// Theme. See docs/wishlist.md → "FoxPro Scheme model" for the
+// migration plan.
+//
+// Slot meanings (mirrors FoxPro's configurator labels):
+//
+//   - NormalText:   body text colour for the scheme
+//   - TextBox:      input/text fields embedded in the scheme (cyan
+//                   strips inside a magenta dialog, etc.)
+//   - Border:       chrome lines (outer + inner frame characters)
+//   - TitleActive:  title bar text when the surface is focused
+//                   (yellow accent on FoxPro)
+//   - TitleIdle:    title text when unfocused
+//   - SelectedItem: focus stripe behind the highlighted list row /
+//                   button (white-on-blue inside a dialog)
+//   - HotKey:       accelerator letter inside a label
+//   - Shadow:       drop-shadow style behind the surface
+//   - EnabledCtrl:  buttons / clickable text in their resting state
+//   - DisabledCtrl: greyed-out version of an enabled control
+//   - CastsShadow:  whether surfaces using this scheme draw a shadow
+type Scheme struct {
+	NormalText, TextBox, Border        tcell.Style
+	TitleActive, TitleIdle             tcell.Style
+	SelectedItem, HotKey               tcell.Style
+	Shadow                             tcell.Style
+	EnabledCtrl, DisabledCtrl          tcell.Style
+	CastsShadow                        bool
+}
+
 // Theme holds the styles used for the desktop, menu bar, windows, and
 // chrome. Themes are built from a Palette so a single layout works across
 // many color schemes — see ThemeFromPalette and the *Palette presets.
@@ -56,6 +88,12 @@ type Theme struct {
 	// dialog look — white text on the CGA "Magenta" slot, which is
 	// the deep purple-maroon DOS apps used for modal-ish messages.
 	WaitWindow tcell.Style
+
+	// Dialog is the FoxPro modal-dialog scheme — magenta body, double-
+	// line outer border, single-line inner border, blue selection
+	// stripe. Used by windows constructed with Window.Dialog=true.
+	// See Scheme for slot definitions.
+	Dialog Scheme
 }
 
 // CGA palette accessors — kept as package-level values for back-compat
@@ -112,6 +150,30 @@ func ThemeFromPalette(p Palette) Theme {
 		Focus: tcell.StyleDefault.Background(p.Brown).Foreground(p.White),
 
 		WaitWindow: tcell.StyleDefault.Background(p.Magenta).Foreground(p.White),
+
+		Dialog: dialogScheme(p),
+	}
+}
+
+// dialogScheme builds the Dialog scheme for the given palette. Layout
+// (which slot maps to which palette slot) is fixed across themes —
+// only the underlying colours change. Modeled on the FoxPro for DOS
+// "Dialogs" colour scheme: white-on-magenta body, yellow-on-magenta
+// title, white-on-blue focus stripe, cyan text-box strips.
+func dialogScheme(p Palette) Scheme {
+	bg := p.Magenta
+	return Scheme{
+		NormalText:   tcell.StyleDefault.Background(bg).Foreground(p.White),
+		TextBox:      tcell.StyleDefault.Background(p.Cyan).Foreground(p.White),
+		Border:       tcell.StyleDefault.Background(bg).Foreground(p.White),
+		TitleActive:  tcell.StyleDefault.Background(bg).Foreground(p.Yellow),
+		TitleIdle:    tcell.StyleDefault.Background(bg).Foreground(p.White),
+		SelectedItem: tcell.StyleDefault.Background(p.Blue).Foreground(p.White),
+		HotKey:       tcell.StyleDefault.Background(bg).Foreground(p.Yellow),
+		Shadow:       tcell.StyleDefault.Background(p.Black).Foreground(p.DarkGray),
+		EnabledCtrl:  tcell.StyleDefault.Background(bg).Foreground(p.White),
+		DisabledCtrl: tcell.StyleDefault.Background(bg).Foreground(p.DarkGray),
+		CastsShadow:  true,
 	}
 }
 

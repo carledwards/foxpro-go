@@ -219,6 +219,16 @@ func (a *App) dispatchKey(ev *tcell.EventKey) {
 		a.MenuBar.HandleKey(ev)
 		return
 	}
+	// Dialog windows preempt builtin keys: a modal dialog must be
+	// able to consume Esc / Enter / Tab without the framework's
+	// quit chord or focus-cycle bindings firing first. The dialog
+	// gets first dibs; if it doesn't consume the key the builtin
+	// path runs as usual.
+	if w := a.Manager.Active(); w != nil && w.Dialog && w.Content != nil {
+		if w.Content.HandleKey(ev) {
+			return
+		}
+	}
 	if a.handleBuiltinKey(ev) {
 		return
 	}
@@ -235,30 +245,64 @@ func (a *App) handleBuiltinKey(ev *tcell.EventKey) bool {
 	}
 	switch ev.Key() {
 	case tcell.KeyF1:
-		// F1 toggles the status bar. Contextual hints (Space: toggle,
-		// etc.) live on the bar's right side, so apps that want a
-		// minimal look can hide the whole strip.
+		// Ctrl+F1 cycles windows — original FoxPro DOS binding.
+		// Shift+Ctrl+F1 cycles backward. Tab is intentionally NOT
+		// bound here so ContentProviders can use it to move focus
+		// between their own controls.
+		//
+		// Caveat: Ctrl+F1 is not reliably delivered everywhere —
+		// macOS intercepts it for keyboard accessibility, and many
+		// terminal emulators drop the modifier on F-keys entirely.
+		// F6 is bound below as a working alias so window cycling
+		// always has a reachable chord.
+		if ev.Modifiers()&tcell.ModCtrl != 0 {
+			if ev.Modifiers()&tcell.ModShift != 0 {
+				a.Manager.FocusPrev()
+			} else {
+				a.Manager.FocusNext()
+			}
+			return true
+		}
+		// Plain F1 toggles the status bar. Contextual hints
+		// (Space: toggle, etc.) live on the bar's right side, so
+		// apps that want a minimal look can hide the whole strip.
 		a.Settings.ShowStatusBar = !a.Settings.ShowStatusBar
 		return true
-	case tcell.KeyF2:
-		a.ToggleCommandWindow()
-		return true
 	case tcell.KeyF6:
-		// F6 cycles windows. Shift+F6 cycles backward.
-		// Tab is intentionally NOT bound here so ContentProviders can
-		// use it to move focus between their own controls.
+		// F6 / Shift+F6 — pragmatic alias for Ctrl+F1, since the
+		// authentic binding is not delivered in many environments.
+		// Same semantics: cycle to the next focused window, or the
+		// previous one when Shift is held.
 		if ev.Modifiers()&tcell.ModShift != 0 {
 			a.Manager.FocusPrev()
 		} else {
 			a.Manager.FocusNext()
 		}
 		return true
+	case tcell.KeyF2:
+		// Ctrl+F2 toggles the command window — original FoxPro DOS
+		// binding. Plain F2 is intentionally NOT bound: it stays
+		// available for app-specific use, matching how real FoxPro
+		// DOS applications used it.
+		if ev.Modifiers()&tcell.ModCtrl == 0 {
+			return false
+		}
+		a.ToggleCommandWindow()
+		return true
 	case tcell.KeyF10:
+		// Modal dialogs lock out the menu bar — user must dismiss
+		// the dialog before opening menus.
+		if a.Manager.ActiveDialog() != nil {
+			return true
+		}
 		if a.MenuBar != nil && len(a.MenuBar.Menus) > 0 {
 			a.MenuBar.Activate(0)
 			return true
 		}
 	case tcell.KeyRune:
+		if a.Manager.ActiveDialog() != nil {
+			return false
+		}
 		if a.MenuBar != nil && ev.Modifiers()&tcell.ModAlt != 0 {
 			ch := unicode.ToLower(ev.Rune())
 			for i, m := range a.MenuBar.Menus {
@@ -370,13 +414,40 @@ func (a *App) dispatchMouse(ev *tcell.EventMouse) {
 		return
 	}
 
+	// While a modal dialog is active, the menu bar is locked out —
+	// the user must dismiss the dialog before opening menus.
+	dialog := a.Manager.ActiveDialog()
+
 	// Menu bar gets first crack at presses — primary button only.
-	if leftPressed && a.MenuBar != nil && a.MenuBar.HandleMousePress(mx, my) {
+	if dialog == nil && leftPressed && a.MenuBar != nil && a.MenuBar.HandleMousePress(mx, my) {
 		return
 	}
 
 	// Otherwise: hit-test windows.
 	w, zone := a.Manager.HitTest(mx, my)
+	// If a modal dialog is up and the press lands on something
+	// that isn't it, decide based on the dialog's style. A
+	// borderless modal (e.g. dropdown popup) auto-dismisses on
+	// outside clicks — match the macOS-menu / FoxPro spinner
+	// convention. A bordered modal (the magenta dialogs) swallows
+	// the press; user must commit / cancel via its controls.
+	if dialog != nil && w != dialog {
+		if dialog.Borderless {
+			if dialog.OnClose != nil {
+				dialog.OnClose()
+			} else {
+				a.Manager.Remove(dialog)
+			}
+			// Fall through: re-hit-test now that the popup is gone
+			// so the click can land on whatever was underneath.
+			w, zone = a.Manager.HitTest(mx, my)
+			if w == nil {
+				return
+			}
+		} else {
+			return
+		}
+	}
 	if w == nil {
 		return
 	}
@@ -914,7 +985,7 @@ func (a *App) draw() {
 		// matter less than knowing how to dismiss the overlay).
 		left := a.Settings.StatusBarLeft
 		if left == "" {
-			left = " F1: status  F2: cmd  F10: menu  F6: next window  Esc: quit "
+			left = " F1: status  F6: next window  ^F2: cmd  F10: menu  Esc: quit "
 		}
 		drawString(a.Screen, 0, h-1, left, hintStyle)
 

@@ -72,8 +72,25 @@ func (m *WindowManager) Active() *Window {
 	return m.windows[m.active]
 }
 
-// Raise moves w to the top of the z-order and focuses it.
+// ActiveDialog returns the topmost window if it is currently a
+// Dialog (modal), else nil. While a dialog is active the framework
+// blocks focus changes and click-to-raise on every other window —
+// see App.dispatchMouse and the FocusNext/FocusPrev guards below.
+func (m *WindowManager) ActiveDialog() *Window {
+	w := m.Active()
+	if w != nil && w.Dialog {
+		return w
+	}
+	return nil
+}
+
+// Raise moves w to the top of the z-order and focuses it. Blocked
+// when a different window is the active dialog: a modal must stay
+// on top until it dismisses itself.
 func (m *WindowManager) Raise(w *Window) {
+	if d := m.ActiveDialog(); d != nil && d != w {
+		return
+	}
 	for i, win := range m.windows {
 		if win == w {
 			m.windows = append(m.windows[:i], m.windows[i+1:]...)
@@ -85,8 +102,10 @@ func (m *WindowManager) Raise(w *Window) {
 }
 
 // FocusNext cycles focus forward, raising the newly focused window.
+// No-op while a dialog is active — the dialog must stay on top
+// until it closes.
 func (m *WindowManager) FocusNext() {
-	if len(m.windows) == 0 {
+	if len(m.windows) == 0 || m.ActiveDialog() != nil {
 		return
 	}
 	m.active = (m.active + 1) % len(m.windows)
@@ -95,8 +114,9 @@ func (m *WindowManager) FocusNext() {
 }
 
 // FocusPrev cycles focus backward, raising the newly focused window.
+// No-op while a dialog is active.
 func (m *WindowManager) FocusPrev() {
-	if len(m.windows) == 0 {
+	if len(m.windows) == 0 || m.ActiveDialog() != nil {
 		return
 	}
 	idx := m.active - 1
@@ -118,6 +138,13 @@ func (m *WindowManager) HitTest(x, y int) (*Window, HitZone) {
 		b := w.Bounds
 		if !b.Contains(x, y) {
 			continue
+		}
+		// Borderless windows have no title / chrome / resize zones —
+		// the entire surface is body. Reporting HitTitle here would
+		// let the user drag a popup by its top row, which defeats
+		// the "popup is anchored to its trigger" UX.
+		if w.Borderless {
+			return w, HitBody
 		}
 		isActive := i == len(m.windows)-1
 		// Title row.

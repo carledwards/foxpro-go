@@ -79,7 +79,7 @@
     canvas.focus();
     setupInput();
     requestAnimationFrame(frame);
-    statusEl.textContent = `${w}×${h} cells · click to focus · F10 = menu · F2 = command window`;
+    statusEl.textContent = `${w}×${h} cells · click to focus · F10 = menu · Ctrl+F2 = command window`;
   }
 
   let stopped = false;

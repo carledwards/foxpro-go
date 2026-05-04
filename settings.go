@@ -12,8 +12,8 @@ type Settings struct {
 	// When false the desktop reclaims that row.
 	ShowStatusBar bool
 	// StatusBarLeft, when non-empty, replaces the default left-side
-	// hint text on the status bar (the "F1: status  F2: cmd  F10: menu
-	// F6: next window  Esc: quit" string). Hosts that bind a different
+	// hint text on the status bar (the "F1: status  F6: next window
+	// ^F2: cmd  F10: menu  Esc: quit" string). Hosts that bind a different
 	// set of keys — or none of them — can use this to surface a
 	// shorter, app-appropriate hint without disabling the bar.
 	// Empty means use the default.
@@ -28,7 +28,7 @@ type Settings struct {
 	// binding entirely; useful for hosts where tearing the app down is
 	// structurally broken (e.g. wasm: Quit terminates the Go runtime,
 	// leaving the page locked). Apps can also override with their own
-	// chord set without losing other built-ins (F1/F2/F6/F10).
+	// chord set without losing other built-ins (F1/^F1/^F2/F10).
 	QuitKeys []tcell.Key
 	// BackgroundDragChords lists press gestures on a window's title bar
 	// that begin a "background drag" — moving the window without
