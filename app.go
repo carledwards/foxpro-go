@@ -281,13 +281,13 @@ func (a *App) handleBuiltinKey(ev *tcell.EventKey) bool {
 		}
 		return true
 	case tcell.KeyF2:
-		// Ctrl+F2 toggles the command window — original FoxPro DOS
-		// binding. Plain F2 is intentionally NOT bound: it stays
-		// available for app-specific use, matching how real FoxPro
-		// DOS applications used it.
-		if ev.Modifiers()&tcell.ModCtrl == 0 {
-			return false
-		}
+		// F2 (any modifier, including none) toggles the command window.
+		// FoxPro DOS used Ctrl+F2, but browsers split the difference:
+		// Safari intercepts plain F2 (caret browsing), Chromium variants
+		// intercept Ctrl+F2 (accessibility chord). Binding both keeps a
+		// single rule the user can rely on across hosts — whichever the
+		// browser leaves alone, the other path picks up the slack. On a
+		// terminal both work, so power users keep the muscle memory.
 		a.ToggleCommandWindow()
 		return true
 	case tcell.KeyF10:
@@ -1010,7 +1010,7 @@ func (a *App) draw() {
 		// matter less than knowing how to dismiss the overlay).
 		left := a.Settings.StatusBarLeft
 		if left == "" {
-			left = " F1: status  F6: next window  ^F2: cmd  F10: menu  Esc: quit "
+			left = " F1: status  F6: next window  F2: cmd  F10: menu  Esc: quit "
 		}
 		drawString(a.Screen, 0, h-1, left, hintStyle)
 

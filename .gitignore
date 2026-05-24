@@ -16,6 +16,9 @@ examples/wasm-hello/web/sim.wasm
 examples/wasm-hello/web/wasm_exec.js
 examples/wasm-hello/web/foxpro.js
 
+# claude local settings
+.claude/
+
 # macOS / editor noise
 .DS_Store
 .idea/

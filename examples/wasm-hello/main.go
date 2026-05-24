@@ -55,6 +55,12 @@ func main() {
 	foxpro.RegisterBuiltinCommands(app)
 
 	setupDemo(app)
+
+	// Greet the user with a WAIT WINDOW toast on boot. Auto-dismisses
+	// after 3 s or on the first key / mouse / tap — also doubles as a
+	// live demo of the WaitWindow API for anyone reading this example.
+	app.ShowWaitWindow(foxpro.NewWaitWindow("Welcome to foxpro-go!"))
+
 	wasm.Run(app, s) // blocks until app.Quit
 }
 
@@ -67,7 +73,7 @@ func setupDemo(a *foxpro.App) {
 		"Click another window to bring it forward.",
 		"",
 		"F10 opens the menu bar; Alt+letter for accelerators.",
-		"Ctrl+F2 toggles the command window.",
+		"F2 (or Ctrl+F2) toggles the command window.",
 	})
 	a.Manager.Add(foxpro.NewWindow(
 		"Hello",
@@ -95,6 +101,17 @@ func setupDemo(a *foxpro.App) {
 		cp.Print(args)
 	})
 
+	// Show a WAIT WINDOW toast. Mirrors FoxPro's `WAIT [msg] WINDOW`;
+	// empty args fall back to a default prompt. Auto-dismisses after the
+	// WaitWindow default timeout (3s) or any key/mouse press.
+	a.Commands.Register("WAIT", "Show a transient toast notification", func(cp *foxpro.CommandProvider, args string) {
+		msg := args
+		if msg == "" {
+			msg = "Press any key..."
+		}
+		a.ShowWaitWindow(foxpro.NewWaitWindow(msg))
+	})
+
 	a.MenuBar = foxpro.NewMenuBar([]foxpro.Menu{
 		{
 			Label: "&File",
@@ -108,7 +125,7 @@ func setupDemo(a *foxpro.App) {
 					))
 					setStatus(fmt.Sprintf("opened window #%d", n))
 				}},
-				{Label: "&Command Window", Hotkey: "Ctrl+F2", OnSelect: a.ToggleCommandWindow},
+				{Label: "&Command Window", Hotkey: "F2", OnSelect: a.ToggleCommandWindow},
 				{Separator: true},
 				// "Quit" reloads the page rather than calling app.Quit.
 				// In a browser, app.Quit ends the Go runtime and bricks

@@ -50,6 +50,13 @@
     // (Cmd+R reloads the page, Cmd+L focuses URL bar, etc.) instead
     // of capturing them. Default true since most users expect this.
     passThroughMeta: true,
+    // When true, focus the canvas the first time the bridge boots so
+    // the keyboard works without a prior click / tap. Opt-in because
+    // pages with significant content above the canvas may not want
+    // an automatic focus jump on load. focus() is called with
+    // preventScroll: true so even when enabled, the viewport stays
+    // put. Default false to preserve the historical behaviour.
+    autoFocus: false,
   };
 
   // ─── public API ───────────────────────────────────────────────
@@ -94,8 +101,12 @@
 
       setupInput(state, fw);
       state.booted = true;
+      if (opts.autoFocus) {
+        try { canvas.focus({ preventScroll: true }); } catch (_) { canvas.focus(); }
+      }
       if (opts.statusEl) {
-        opts.statusEl.textContent = `${w}×${h} cells · click to focus`;
+        const hint = opts.autoFocus ? 'ready' : 'click to focus';
+        opts.statusEl.textContent = `${w}×${h} cells · ${hint}`;
       }
       requestAnimationFrame(() => frame(state));
       return true;

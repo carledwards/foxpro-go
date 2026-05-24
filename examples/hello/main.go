@@ -60,6 +60,17 @@ func main() {
 		cp.Print(args)
 	})
 
+	// Show a WAIT WINDOW toast. Mirrors FoxPro's `WAIT [msg] WINDOW`;
+	// empty args fall back to a default prompt. Auto-dismisses after the
+	// WaitWindow default timeout (3s) or any key/mouse press.
+	app.Commands.Register("WAIT", "Show a transient toast notification", func(cp *foxpro.CommandProvider, args string) {
+		msg := args
+		if msg == "" {
+			msg = "Press any key..."
+		}
+		app.ShowWaitWindow(foxpro.NewWaitWindow(msg))
+	})
+
 	app.MenuBar = foxpro.NewMenuBar([]foxpro.Menu{
 		{
 			Label: "&File",
@@ -77,7 +88,7 @@ func main() {
 					app.Manager.Add(foxpro.NewSettingsWindow(app))
 					setStatus("opened settings")
 				}},
-				{Label: "&Command Window", Hotkey: "Ctrl+F2", OnSelect: app.ToggleCommandWindow},
+				{Label: "&Command Window", Hotkey: "F2", OnSelect: app.ToggleCommandWindow},
 				{Separator: true},
 				{Label: "E&xit", Hotkey: "Esc", OnSelect: app.Quit},
 			},
@@ -109,6 +120,11 @@ func main() {
 			},
 		},
 	})
+
+	// Greet the user with a WAIT WINDOW toast on boot. Auto-dismisses
+	// after 3 s or on the first key / mouse press — also doubles as a
+	// live demo of the WaitWindow API.
+	app.ShowWaitWindow(foxpro.NewWaitWindow("Welcome to foxpro-go!"))
 
 	app.Run()
 }
