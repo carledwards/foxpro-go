@@ -53,7 +53,8 @@ type App struct {
 
 	// Command window reference, kept so F2 / ToggleCommandWindow can
 	// find it across opens and closes.
-	cmdWindow *Window
+	cmdWindow    *Window
+	cmdTickStop  func() // redraw heartbeat that drives the cursor blink
 
 	// Active wait-window overlay (FoxPro WAIT WINDOW), or nil. Only one
 	// at a time. See ShowWaitWindow / DismissWaitWindow.
@@ -831,19 +832,43 @@ func (a *App) setWaitCell(x, y int, ch rune, style tcell.Style, screenW int) {
 // it from the manager if currently shown. The Window instance itself
 // is created once and reused so the command history, input buffer,
 // and last position survive across hide/show cycles. Bound to F2.
+//
+// Starts / stops a 250 ms redraw tick alongside the show / hide so the
+// cursor blink animates on its own cadence instead of only firing when
+// some other event (mouse move, key press) happens to trigger a draw.
+// 250 ms is half the 500 ms blink period — Nyquist-style headroom so
+// every phase flip lands on a draw.
 func (a *App) ToggleCommandWindow() {
 	if a.cmdWindow == nil {
 		a.cmdWindow = NewCommandWindow(a)
 		w := a.cmdWindow
 		w.OnClose = func() {
 			a.Manager.Remove(w) // hide; keep state for next reopen
+			a.stopCmdTick()
 		}
 	}
 	if a.Manager.Contains(a.cmdWindow) {
 		a.Manager.Remove(a.cmdWindow)
+		a.stopCmdTick()
 	} else {
 		a.Manager.Add(a.cmdWindow)
+		a.startCmdTick()
 	}
+}
+
+func (a *App) startCmdTick() {
+	if a.cmdTickStop != nil {
+		return
+	}
+	a.cmdTickStop = a.Tick(250*time.Millisecond, nil)
+}
+
+func (a *App) stopCmdTick() {
+	if a.cmdTickStop == nil {
+		return
+	}
+	a.cmdTickStop()
+	a.cmdTickStop = nil
 }
 
 // shadeWindow toggles window-shade mode. When shaded, the window
