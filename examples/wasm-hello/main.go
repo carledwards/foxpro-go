@@ -125,6 +125,10 @@ func setupDemo(a *foxpro.App) {
 					))
 					setStatus(fmt.Sprintf("opened window #%d", n))
 				}},
+				{Label: "&Settings...", OnSelect: func() {
+					a.Manager.Add(foxpro.NewSettingsWindow(a))
+					setStatus("opened settings")
+				}},
 				{Label: "&Command Window", Hotkey: "F2", OnSelect: a.ToggleCommandWindow},
 				{Separator: true},
 				// "Quit" reloads the page rather than calling app.Quit.

@@ -10,6 +10,8 @@ single-line borders, blue/cyan/yellow chrome, drop shadows, mouse
 support. Each window owns a `ContentProvider`; the framework handles
 the chrome, hit-testing, focus, scrollbars, and event routing.
 
+![foxpro-go demo](docs/foxpro-dos-tui.png)
+
 ## Live demo
 
 A WebAssembly build of the `examples/wasm-hello` demo runs in the
