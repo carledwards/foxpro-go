@@ -2,48 +2,286 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>foxpro-go in the browser</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>foxpro-go — browser build</title>
 <style>
+  :root {
+    --bg: #111;
+    --fg: #eee;
+    --muted: #888;
+    --accent: #4a9;
+    --rule: #2a2a2a;
+    --panel: #181818;
+    --tag: #b87333;
+  }
   html, body {
     margin: 0;
     padding: 0;
-    background: #111;
-    color: #eee;
+    background: var(--bg);
+    color: var(--fg);
     font-family: -apple-system, system-ui, sans-serif;
-    height: 100%;
+    min-height: 100%;
   }
   #wrap {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 12px;
+    padding: 12px 12px 32px;
     box-sizing: border-box;
   }
   #status {
     font-size: 12px;
-    color: #888;
+    color: var(--muted);
     margin-bottom: 8px;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  /* --- CRT-monitor-style bezel around the canvas --- */
+  .crt {
+    padding: 14px;
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, #2c2c2c 0%, #1a1a1a 60%, #141414 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      inset 0 -2px 6px rgba(0, 0, 0, 0.55),
+      0 1px 0 rgba(255, 255, 255, 0.04),
+      0 6px 14px rgba(0, 0, 0, 0.55),
+      0 28px 70px rgba(0, 0, 0, 0.7);
+    transition: box-shadow 120ms ease-out;
+  }
+  .crt:has(canvas:focus) {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      inset 0 -2px 6px rgba(0, 0, 0, 0.55),
+      0 0 0 1px var(--accent),
+      0 0 18px rgba(74, 153, 153, 0.35),
+      0 28px 70px rgba(0, 0, 0, 0.7);
   }
   canvas {
     background: #000;
     image-rendering: pixelated;
     outline: none;
-    box-shadow: 0 0 0 1px #333;
-    /* Scale down to fit the viewport while preserving the cell grid's
-       aspect ratio. width/height in JS still set the backing-store
-       resolution; CSS just clamps the rendered size. */
-    max-width: 100vw;
-    max-height: calc(100vh - 60px);
+    display: block;
+    border-radius: 4px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      inset 0 0 24px rgba(0, 0, 0, 0.6);
+    max-width: calc(100vw - 28px);
+    max-height: calc(100vh - 90px);
     height: auto;
   }
-  canvas:focus { box-shadow: 0 0 0 2px #4a9; }
+
+  /* --- info section below canvas --- */
+  .info {
+    width: 100%;
+    max-width: 1100px;
+    margin-top: 28px;
+    padding: 0 8px;
+    box-sizing: border-box;
+  }
+  .info h1 {
+    font-size: 14px;
+    margin: 0 0 6px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    text-transform: uppercase;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .info p {
+    margin: 0 0 14px;
+    line-height: 1.5;
+    font-size: 14px;
+    color: #ccc;
+  }
+  .info p strong { color: var(--fg); }
+  .info code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12.5px;
+    background: #000;
+    color: #d8c070;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 6px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 12px 14px;
+  }
+  .card.wide { grid-column: 1 / -1; }
+  .card.wide ul { columns: 2; column-gap: 24px; }
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+    .card.wide ul { columns: 1; }
+  }
+  .card h2 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .card p, .card li {
+    margin: 0 0 6px;
+    line-height: 1.45;
+    font-size: 13.5px;
+    color: #ccc;
+  }
+  .card ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+  .tag {
+    display: inline-block;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--tag);
+    border: 1px solid var(--tag);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .lede {
+    font-size: 14px;
+    color: #c8c8c8;
+    line-height: 1.55;
+    max-width: 880px;
+  }
+  .lede em { color: var(--accent); font-style: normal; }
+  hr.sep {
+    border: 0;
+    border-top: 1px solid var(--rule);
+    margin: 24px 0 16px;
+  }
+  a { color: var(--accent); }
 </style>
 </head>
 <body>
 <div id="wrap">
   <div id="status">loading…</div>
-  <canvas id="screen" tabindex="0"></canvas>
+  <div class="crt">
+    <canvas id="screen" tabindex="0"></canvas>
+  </div>
+
+  <section class="info">
+    <h1>About this thing</h1>
+    <p class="lede">
+      <strong>foxpro-go</strong> is a from-scratch homage to the
+      <strong>FoxPro for DOS</strong> TUI (and dBASE before it) — floating
+      windows, draggable / resizable / focusable, a menu bar with hotkeys,
+      half-box scrollbars, drop shadows, and a CGA-style palette. It targets
+      a <em>tcell.Screen</em>, so the same widget code runs in a real
+      terminal or, like here, against a WebAssembly canvas. No DOM hacks,
+      no per-platform rewrites — just one cell buffer rendered two ways.
+    </p>
+
+    <hr class="sep">
+
+    <div class="grid">
+      <div class="card">
+        <h2>How it's built</h2>
+        <ul>
+          <li><span class="tag">Go</span> One framework, two front-ends.</li>
+          <li><span class="tag">TUI</span> Native build runs in a real terminal via tcell.</li>
+          <li><span class="tag">WASM</span> The browser build compiles the same code with <code>GOOS=js</code>, drives a <code>tcell.SimulationScreen</code>, and paints the cell buffer to a canvas every animation frame.</li>
+          <li>Keyboard, mouse, wheel, and touch all feed the same event bus the terminal build sees — widgets don't know which one they're running on.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>The aesthetic</h2>
+        <p>
+          Late-90s Borland / FoxPro DOS: single-line borders, blue/cyan/yellow
+          chrome, half-box (▌▐) scrollbar gutters, hollow drop shadows. Title
+          bars carry <code>■</code> close and <code>▲</code> zoom glyphs.
+          Modal dialogs darken the desktop behind them.
+        </p>
+        <p>
+          The whole palette swaps in one line — try <code>ClassicPalette()</code>,
+          <code>DraculaPalette()</code>, or <code>RetroGreenPalette()</code> in your own demo.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>What's on screen</h2>
+        <ul>
+          <li><strong>Hello</strong> — a plain text window. Grab the title bar to drag; the bottom-right corner is the resize handle.</li>
+          <li><strong>Scrollback</strong> — 80 lines through a vertical scrollbar. Wheel, PgUp/PgDn, or drag the thumb.</li>
+          <li><strong>Status</strong> — wide narrow window the menu writes into. Watch it update when you pick a menu item.</li>
+          <li><strong>Menu bar</strong> — File / Help across the top. <code>F10</code> activates, <code>Alt+F</code> / <code>Alt+H</code> jump straight to a menu.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>Try this</h2>
+        <ul>
+          <li><code>F10</code> opens the menu. <strong>File → New Window</strong> spawns more.</li>
+          <li><code>Ctrl+F2</code> toggles the <strong>command window</strong> — type <code>HELP</code>, <code>VER</code>, <code>CLS</code>, or <code>ECHO hi</code>.</li>
+          <li>Click any window to bring it forward; drag any title bar to move it.</li>
+          <li><strong>Shift+click</strong> on the desktop background drags the entire layout.</li>
+          <li>On a phone: tap a window to focus, drag a title bar with your finger — touch events route through the same pointer pipeline as a mouse.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>Inside the framework</h2>
+        <ul>
+          <li><strong>Manager</strong> — z-order, focus, hit-testing, event routing.</li>
+          <li><strong>ContentProvider</strong> — every window's body is one of these. Text, lists, pane splits, scroll-wrapped, or your own.</li>
+          <li><strong>Canvas</strong> — auto-clipping + scroll translation so providers draw in their own coords.</li>
+          <li><strong>Pixel layer</strong> — sentinel-rune trick lets bitmaps overlay the cell grid with windows, shadows, and z-order still <em>just working</em> on top.</li>
+          <li><strong>Dialog package</strong> — modal popups that block input behind them until dismissed.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>Why a TUI in 2026</h2>
+        <p>
+          Terminals are still the densest, fastest, most-keyboard-driven
+          surface we've got for tools that watch live state — debuggers,
+          monitors, simulators. FoxPro's TUI got an enormous amount right:
+          fast keyboard nav, predictable layout, no animation tax. This
+          framework brings that vocabulary to Go and, via wasm, to anywhere
+          a browser runs.
+        </p>
+      </div>
+
+      <div class="card wide">
+        <h2>Run it yourself</h2>
+        <p>
+          The whole project is one Go module. The terminal build is
+          <code>go run ./examples/hello</code>; the browser build you're
+          looking at is <code>make</code> inside <code>examples/wasm-hello</code>
+          (builds the wasm, serves it on :8765). Both share the same widget
+          code — only the screen backend differs.
+        </p>
+        <p>
+          Source &amp; docs:
+          <a href="https://github.com/carledwards/foxpro-go">github.com/carledwards/foxpro-go</a>
+          &middot;
+          <a href="https://github.com/carledwards/foxpro-go/blob/main/WASM_PORT.md">WASM_PORT.md</a>
+          for the browser-port architecture.
+          The companion project
+          <a href="https://github.com/carledwards/6502-sim-tui">6502-sim-tui</a>
+          embeds this framework as its host shell.
+        </p>
+      </div>
+    </div>
+
+    <hr class="sep">
+    <p style="font-size: 12px; color: var(--muted); text-align: center; margin: 0;">
+      Carl Edwards &middot;
+      <a href="https://thecarledwards.com">thecarledwards.com</a>
+    </p>
+  </section>
 </div>
 <script src="wasm_exec.js"></script>
 <script src="sim.js"></script>

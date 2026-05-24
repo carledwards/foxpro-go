@@ -22,6 +22,31 @@ build — just rendered to a canvas instead of a TTY. See
 [`WASM_PORT.md`](WASM_PORT.md) for how the port works and how to add
 your own browser demo.
 
+### Run it locally
+
+**Terminal (TUI).** The same demo, rendered to your shell:
+
+```
+cd examples/hello
+go run .
+```
+
+**Browser (WebAssembly).** Build the wasm bundle and serve it:
+
+```
+cd examples/wasm-hello
+make            # build wasm + serve on http://localhost:8765
+make build      # rebuild sim.wasm only
+make serve      # serve existing web/ only
+make clean      # remove build artifacts
+```
+
+Requires Go 1.21+. The wasm target additionally needs `python3` (for
+the static file server); the Makefile auto-locates `wasm_exec.js`
+under the active Go toolchain. To test on a phone, point the
+device's browser at `http://<your-laptop-ip>:8765/` on the same
+network.
+
 ## Usage
 
 This module is consumed by

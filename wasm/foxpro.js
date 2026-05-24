@@ -453,20 +453,62 @@
       return m;
     }
 
-    canvas.addEventListener('mousedown', (e) => {
+    // Pointer Events cover mouse + touch + pen behind one API. We
+    // used to listen for mouse* directly, but iOS Safari fires
+    // synthetic mouse events with e.buttons=0 on tap, so tcell
+    // never saw a button press — taps just moved the cursor. The
+    // pointer* events report pointerType so we can force Primary on
+    // touch contact, and setPointerCapture keeps move/up events
+    // flowing even when a finger drifts outside the canvas rect
+    // (matters for dragging a window title bar to the edge).
+    //
+    // touch-action: none — suppresses browser scroll / pinch-zoom /
+    // double-tap-zoom over the canvas so finger coords map cleanly
+    // to cell coords. -webkit-touch-callout + user-select kill the
+    // long-press magnifier / selection callout on iOS.
+    canvas.style.touchAction = 'none';
+    canvas.style.webkitTouchCallout = 'none';
+    canvas.style.webkitUserSelect = 'none';
+    canvas.style.userSelect = 'none';
+
+    // Touch contact = primary button held. Per spec e.buttons should
+    // be 1 throughout a pointerdown → pointerup, but Safari has
+    // shipped builds where it reports 0 on the down event itself;
+    // we track our own held-state on touch to dodge that.
+    let touchButtons = 0;
+
+    canvas.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       canvas.focus();
+      // Pointer capture: subsequent move/up events stay routed to
+      // this canvas even if the finger slides past its rect — same
+      // semantics as a desktop mouse drag past the window edge.
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      let mask = buttonsMaskFromEvent(e);
+      if (e.pointerType === 'touch') {
+        mask = BTN.Primary;
+        touchButtons = BTN.Primary;
+      }
       const [cx, cy] = pixelToCell(e);
-      fw.injectMouse(cx, cy, buttonsMaskFromEvent(e), modMaskFromEvent(e));
+      fw.injectMouse(cx, cy, mask, modMaskFromEvent(e));
     });
-    canvas.addEventListener('mousemove', (e) => {
+    canvas.addEventListener('pointermove', (e) => {
+      let mask = buttonsMaskFromEvent(e);
+      if (e.pointerType === 'touch') mask = touchButtons;
       const [cx, cy] = pixelToCell(e);
-      fw.injectMouse(cx, cy, buttonsMaskFromEvent(e), modMaskFromEvent(e));
+      fw.injectMouse(cx, cy, mask, modMaskFromEvent(e));
     });
-    canvas.addEventListener('mouseup', (e) => {
+    canvas.addEventListener('pointerup', (e) => {
       e.preventDefault();
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (e.pointerType === 'touch') touchButtons = 0;
       const [cx, cy] = pixelToCell(e);
-      fw.injectMouse(cx, cy, buttonsMaskFromEvent(e), modMaskFromEvent(e));
+      fw.injectMouse(cx, cy, 0, modMaskFromEvent(e));
+    });
+    canvas.addEventListener('pointercancel', (e) => {
+      if (e.pointerType === 'touch') touchButtons = 0;
+      const [cx, cy] = pixelToCell(e);
+      fw.injectMouse(cx, cy, 0, modMaskFromEvent(e));
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('wheel', (e) => {
