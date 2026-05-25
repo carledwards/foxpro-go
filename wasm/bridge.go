@@ -159,6 +159,31 @@ func (b *bridge) pixelLayers(this js.Value, args []js.Value) any {
 				cellH = rh
 			}
 		}
+		// Clamp to the window's inner rect. A provider that returns
+		// a PixelRect larger than the window can hold would otherwise
+		// have its pixel-substitution scan walk past this window's
+		// right / bottom edge — and since multiple providers can use
+		// the same PIXEL_SENTINEL rune, a hit in another window's
+		// cells leaks this layer's pixels on top of that window.
+		// Also clamp negative offsets back to the window's left/top
+		// edge so a scrolled-out rect can't reach into the desktop.
+		if cellX < inner.X {
+			cellW -= inner.X - cellX
+			cellX = inner.X
+		}
+		if cellY < inner.Y {
+			cellH -= inner.Y - cellY
+			cellY = inner.Y
+		}
+		if cellX+cellW > inner.X+inner.W {
+			cellW = inner.X + inner.W - cellX
+		}
+		if cellY+cellH > inner.Y+inner.H {
+			cellH = inner.Y + inner.H - cellY
+		}
+		if cellW <= 0 || cellH <= 0 {
+			continue
+		}
 		out = append(out, map[string]any{
 			"id":     pc.PixelLayerID(),
 			"cellX":  cellX,
