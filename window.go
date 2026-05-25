@@ -83,6 +83,13 @@ type Window struct {
 	OnClose  func()
 	OnZoom   func()
 
+	// Tag is an optional stable identifier the host can assign so
+	// snapshot/restore code can address a window by something more
+	// durable than Title (which apps often mutate — e.g. to embed
+	// runtime state like "CPU (netsim)"). The framework never reads
+	// Tag itself; it's purely a key for the host.
+	Tag string
+
 	// Dialog flips the window into FoxPro modal-dialog rendering:
 	// magenta body, double-line outer border, single-line inner
 	// border one cell inside, title rendered top-left in yellow.
