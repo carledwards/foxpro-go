@@ -29,6 +29,10 @@
 
   const PIXEL_SENTINEL = 0xE000;
   const DEFAULT_COLOR_SENTINEL = 0xff000000;
+  // tcell.AttrDim (1<<4). Drop-shadow cells are tagged with it; over a pixel
+  // layer we veil them with tintOverlay so the shadow darkens the canvas to
+  // match the darkening applied to text cells.
+  const ATTR_DIM = 1 << 4;
 
   const DEFAULT_OPTS = {
     fontPx: 16,
@@ -208,6 +212,9 @@
       state.pixelLayerCanvases.clear();
       return;
     }
+    // Nearest-neighbor scaling for pixel layers — retro pixels should stay
+    // crisp, not blur (and dim) when scaled to the cell grid.
+    state.ctx.imageSmoothingEnabled = false;
     const seen = new Set();
     for (const L of layers) {
       seen.add(L.id);
@@ -242,7 +249,7 @@
           const off = (screenY * w + screenX) * 16;
           const ch = state.view.getUint32(off, true);
           if (ch !== PIXEL_SENTINEL) continue;
-          const bg = state.view.getUint32(off + 8, true);
+          const attrs = state.view.getUint32(off + 12, true);
           const px = screenX * state.cellW;
           const py = screenY * state.cellH;
           state.ctx.drawImage(
@@ -250,7 +257,9 @@
             cx * subW, cy * subH, subW, subH,
             px, py, state.cellW, state.cellH,
           );
-          if (state.tintColorSet && state.tintColorSet.has(bg)) {
+          // A drop shadow falling on the pixel layer is tagged AttrDim; veil it
+          // so the canvas darkens to match the shadow over ordinary cells.
+          if (attrs & ATTR_DIM) {
             state.ctx.fillStyle = state.opts.tintOverlay;
             state.ctx.fillRect(px, py, state.cellW, state.cellH);
           }

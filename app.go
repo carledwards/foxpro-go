@@ -839,14 +839,7 @@ func (a *App) setWaitCell(x, y int, ch rune, style tcell.Style, screenW int) {
 // 250 ms is half the 500 ms blink period — Nyquist-style headroom so
 // every phase flip lands on a draw.
 func (a *App) ToggleCommandWindow() {
-	if a.cmdWindow == nil {
-		a.cmdWindow = NewCommandWindow(a)
-		w := a.cmdWindow
-		w.OnClose = func() {
-			a.Manager.Remove(w) // hide; keep state for next reopen
-			a.stopCmdTick()
-		}
-	}
+	a.ensureCommandWindow()
 	if a.Manager.Contains(a.cmdWindow) {
 		a.Manager.Remove(a.cmdWindow)
 		a.stopCmdTick()
@@ -854,6 +847,29 @@ func (a *App) ToggleCommandWindow() {
 		a.Manager.Add(a.cmdWindow)
 		a.startCmdTick()
 	}
+}
+
+// ensureCommandWindow lazily creates the reusable command window and wires
+// its hide-on-close behaviour. Safe to call repeatedly.
+func (a *App) ensureCommandWindow() {
+	if a.cmdWindow != nil {
+		return
+	}
+	a.cmdWindow = NewCommandWindow(a)
+	w := a.cmdWindow
+	w.OnClose = func() {
+		a.Manager.Remove(w) // hide; keep state for next reopen
+		a.stopCmdTick()
+	}
+}
+
+// CommandWindow returns the app's command window, creating it (once) if
+// needed. The instance is reused across F2 show/hide, so hosts can set its
+// initial Bounds (position / size) or Title here at startup before it is
+// first shown.
+func (a *App) CommandWindow() *Window {
+	a.ensureCommandWindow()
+	return a.cmdWindow
 }
 
 func (a *App) startCmdTick() {
@@ -1014,18 +1030,22 @@ func (a *App) draw() {
 		}
 		drawString(a.Screen, 0, h-1, left, hintStyle)
 
-		// Right: contextual hint from the active window's content
-		// provider, if it implements StatusHinter. Drawn flush right
-		// with one trailing space, only if it doesn't overlap left.
-		if active := a.Manager.Active(); active != nil && active.Content != nil {
-			if hinter, ok := active.Content.(StatusHinter); ok {
-				hint := hinter.StatusHint()
-				if hint != "" {
-					rx := w - len(hint) - 1
-					if rx > len(left) {
-						drawString(a.Screen, rx, h-1, hint, hintStyle)
-					}
+		// Right: a persistent app-global indicator (Settings.StatusBarRight)
+		// if set, otherwise the contextual hint from the active window's
+		// content provider when it implements StatusHinter. Drawn flush
+		// right with one trailing space, only if it doesn't overlap left.
+		right := a.Settings.StatusBarRight
+		if right == "" {
+			if active := a.Manager.Active(); active != nil && active.Content != nil {
+				if hinter, ok := active.Content.(StatusHinter); ok {
+					right = hinter.StatusHint()
 				}
+			}
+		}
+		if right != "" {
+			rx := w - len(right) - 1
+			if rx > len(left) {
+				drawString(a.Screen, rx, h-1, right, hintStyle)
 			}
 		}
 	}

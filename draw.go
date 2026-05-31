@@ -31,15 +31,42 @@ func drawString(screen tcell.Screen, x, y int, s string, style tcell.Style) {
 	}
 }
 
-// shadeCell re-paints the cell at (x,y) with its existing rune but the
-// given style (both fg and bg replaced). Used for the drop shadow, which
-// dims whatever character is underneath to a fixed darkgray-on-black look.
-func shadeCell(screen tcell.Screen, x, y int, style tcell.Style) {
-	mainc, combc, _, _ := screen.GetContent(x, y)
+// shadeCell turns the cell at (x,y) into part of a drop shadow. It keeps the
+// rune underneath but *darkens its existing colors* to a fraction of their
+// brightness — a translucent-looking veil rather than a flat block — and tags
+// the cell AttrDim so a pixel-layer host (the wasm canvas) can veil its own
+// pixels to match. Because the shadow scales whatever is beneath it, it reads
+// consistently over text, window chrome, and the pixel Screen alike. The style
+// argument is ignored (kept for call-site compatibility).
+func shadeCell(screen tcell.Screen, x, y int, _ tcell.Style) {
+	mainc, combc, st, _ := screen.GetContent(x, y)
 	if mainc == 0 {
 		mainc = ' '
 	}
-	screen.SetContent(x, y, mainc, combc, style)
+	fg, bg, attrs := st.Decompose()
+	screen.SetContent(x, y, mainc, combc, tcell.StyleDefault.
+		Foreground(darkenColor(fg)).
+		Background(darkenColor(bg)).
+		Attributes(attrs|tcell.AttrDim))
+}
+
+// shadowBrightness is the percentage of its original brightness a drop-shadow
+// cell keeps. ~30% matches the wasm host's translucent pixel veil
+// (rgba(0,0,0,0.7) lets 30% of the canvas show through), so a single shadow
+// reads the same over character cells and over a pixel layer.
+const shadowBrightness = 30
+
+// darkenColor scales a color toward black for drop-shadow veiling. Unset or
+// invalid colors collapse to black.
+func darkenColor(c tcell.Color) tcell.Color {
+	if c == tcell.ColorDefault {
+		return tcell.ColorBlack
+	}
+	r, g, b := c.RGB()
+	if r < 0 {
+		return tcell.ColorBlack
+	}
+	return tcell.NewRGBColor(r*shadowBrightness/100, g*shadowBrightness/100, b*shadowBrightness/100)
 }
 
 // drawWindow renders a window's drop shadow, frame, title bar, and delegates
@@ -258,24 +285,18 @@ func frameBG(s tcell.Style) tcell.Color {
 	return bg
 }
 
-// drawDialogWindow renders a Window flagged as Dialog: a single-line
-// ┌───┐ border around a magenta body using theme.Dialog. The
-// window's title (if non-empty) is rendered centered on the first
-// body row, in yellow-on-magenta when focused.
+// drawDialogWindow renders a Window flagged as Dialog: a double-line
+// ╔═══╗ border around a magenta body using theme.Dialog. The window's
+// title (if non-empty) is embedded in the top border as " Title ",
+// centered, in yellow-on-magenta when focused.
 //
-// Content area (what gets passed to Content.Draw) is the rect
-// strictly inside the border, *below* the title row (so the
-// provider can lay out from y=0 without re-drawing the title).
-// DialogInner returns the same rect.
+// Content area (what gets passed to Content.Draw) is the full rect
+// strictly inside the border (DialogInner) — the title lives in the
+// border, so the provider lays out from y=0 with no title row to skip.
 //
 // Dialogs ignore w.Closable / w.Zoomable / shading / scrollbars —
 // any chrome embedded in the dialog (OK button, Cancel button) is
 // the provider's job. Resize handle is also suppressed.
-//
-// Single-line glyphs are intentional: many bitmap and canvas fonts
-// render the double-line ║═ runes with vertical gaps between cell
-// rows, which looks broken on the wasm canvas. Single-line ─│
-// is universally supported and reads as a clean continuous frame.
 func drawDialogWindow(screen tcell.Screen, w *Window, theme Theme, settings Settings, focused bool) {
 	b := w.Bounds
 	scheme := theme.Dialog
@@ -300,30 +321,25 @@ func drawDialogWindow(screen tcell.Screen, w *Window, theme Theme, settings Sett
 		drawBoxBorder(screen, b, scheme.Border, dialogBorderBox)
 	}
 
-	// Title — centered on the first body row (one row below the
-	// border), in TitleActive style when focused, TitleIdle when
-	// not. Skipped when w.Title is empty so providers without a
-	// title get the full body height.
-	if w.Title != "" && b.W > 4 && b.H >= 3 {
+	// Title — embedded in the top border as " Title ", centered, in
+	// TitleActive style when focused, TitleIdle when not. Skipped when
+	// w.Title is empty. The content rect is the full interior (the title
+	// sits in the border, not on a body row).
+	if w.Title != "" && b.W > 4 {
 		titleStyle := scheme.TitleIdle
 		if focused {
 			titleStyle = scheme.TitleActive
 		}
-		title := w.Title
-		avail := b.W - 2
-		if len(title) > avail {
-			title = title[:avail]
+		title := " " + w.Title + " "
+		if len(title) > b.W-2 {
+			title = title[:b.W-2]
 		}
-		tx := b.X + 1 + (avail-len(title))/2
-		drawString(screen, tx, b.Y+1, title, titleStyle)
+		tx := b.X + 1 + (b.W-2-len(title))/2
+		drawString(screen, tx, b.Y, title, titleStyle)
 	}
 
 	if w.Content != nil {
 		ci := DialogInner(b)
-		if w.Title != "" {
-			ci.Y++
-			ci.H--
-		}
 		if ci.W >= 1 && ci.H >= 1 {
 			w.Content.Draw(screen, ci, theme, focused)
 		}
@@ -331,17 +347,18 @@ func drawDialogWindow(screen tcell.Screen, w *Window, theme Theme, settings Sett
 }
 
 // DialogInner returns the content rect of a Dialog window — the area
-// strictly inside the ┌───┐ border (1 cell in from b on every side).
-// When the window has a non-empty Title the framework draws it on the
-// first row of this rect; the rect passed to Content.Draw is one row
-// shorter to skip the title row.
+// strictly inside the ╔═══╗ border (1 cell in from b on every side).
+// The title is drawn in the top border, so the full interior is the
+// content area.
 func DialogInner(b Rect) Rect {
 	return Rect{X: b.X + 1, Y: b.Y + 1, W: b.W - 2, H: b.H - 2}
 }
 
-// dialogBorderBox is the dialog-border glyph set — single line for
-// solid rendering across fonts.
-var dialogBorderBox = boxGlyphs{tl: '┌', tr: '┐', bl: '└', br: '┘', h: '─', v: '│'}
+// dialogBorderBox is the dialog-border glyph set — double line for the
+// classic DOS / FoxPro dialog look. (Some bitmap/canvas fonts render the
+// double-line runes with small vertical gaps between cell rows; that's a
+// known cosmetic trade-off on the wasm canvas.)
+var dialogBorderBox = boxGlyphs{tl: '╔', tr: '╗', bl: '╚', br: '╝', h: '═', v: '║'}
 
 // boxGlyphs bundles the six runes that make up a rectangular border.
 type boxGlyphs struct{ tl, tr, bl, br, h, v rune }

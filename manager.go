@@ -158,7 +158,7 @@ func (m *WindowManager) HitTest(x, y int) (*Window, HitZone) {
 			return w, HitTitle
 		}
 		// Bottom-right corner is the resize grip.
-		if isActive && x == b.X+b.W-1 && y == b.Y+b.H-1 {
+		if isActive && w.Resizable && x == b.X+b.W-1 && y == b.Y+b.H-1 {
 			return w, HitResize
 		}
 		// Vertical scrollbar in the right column. Top/bottom rows are

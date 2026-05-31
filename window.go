@@ -80,8 +80,12 @@ type Window struct {
 	Content  ContentProvider
 	Closable bool
 	Zoomable bool
-	OnClose  func()
-	OnZoom   func()
+	// Resizable controls whether the bottom-right drag grip is offered.
+	// Defaults to true (via NewWindow). Set false for windows whose
+	// content has a fixed natural size (e.g. a 40x25 emulated screen).
+	Resizable bool
+	OnClose   func()
+	OnZoom    func()
 
 	// Tag is an optional stable identifier the host can assign so
 	// snapshot/restore code can address a window by something more
@@ -130,7 +134,7 @@ type Window struct {
 // NewWindow constructs a window with the given title, bounds, and content.
 // Closable and Zoomable default to true.
 func NewWindow(title string, bounds Rect, content ContentProvider) *Window {
-	return &Window{Title: title, Bounds: bounds, Content: content, Closable: true, Zoomable: true}
+	return &Window{Title: title, Bounds: bounds, Content: content, Closable: true, Zoomable: true, Resizable: true}
 }
 
 // ShadedWidth is the fixed width a window collapses to when shaded.

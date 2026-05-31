@@ -18,6 +18,12 @@ type Settings struct {
 	// shorter, app-appropriate hint without disabling the bar.
 	// Empty means use the default.
 	StatusBarLeft string
+	// StatusBarRight, when non-empty, is drawn flush-right on the status
+	// bar and takes precedence over the active window's StatusHinter. Use
+	// it for a persistent, app-global indicator (e.g. a connection status)
+	// that should stay visible regardless of which window has focus. Empty
+	// falls back to the active window's contextual hint.
+	StatusBarRight string
 	// ThemeIndex is the currently selected entry of ThemePresets. The
 	// settings window flips this and re-applies the corresponding palette
 	// to App.Theme; client code should not edit it directly.

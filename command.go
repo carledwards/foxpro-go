@@ -262,6 +262,33 @@ func (cp *CommandProvider) Draw(screen tcell.Screen, inner Rect, theme Theme, fo
 	}
 }
 
+// HandleMouse moves the cursor to the clicked position — the clicked row,
+// and the clicked column clamped to that line's length (so a click past the
+// end of the text lands at the end of the line, the "best place it can").
+func (cp *CommandProvider) HandleMouse(ev *tcell.EventMouse, inner Rect) bool {
+	if ev.Buttons()&tcell.Button1 == 0 {
+		return false
+	}
+	mx, my := ev.Position()
+	row := cp.scrollY + (my - inner.Y)
+	if row < 0 {
+		row = 0
+	}
+	if row > len(cp.lines)-1 {
+		row = len(cp.lines) - 1
+	}
+	col := cp.scrollX + (mx - inner.X)
+	if col < 0 {
+		col = 0
+	}
+	if col > len(cp.lines[row]) {
+		col = len(cp.lines[row])
+	}
+	cp.cy, cp.cx = row, col
+	cp.ensureCursorVisible()
+	return true
+}
+
 // StatusHint returns the contextual hint shown on the status bar while
 // the command window is active.
 func (cp *CommandProvider) StatusHint() string {
